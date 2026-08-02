@@ -1,6 +1,6 @@
 # rct 要件定義書
 
-- 文書版: 0.10.1-draft
+- 文書版: 0.11.0-draft
 - ステータス: Draft（rct Core Loop実装済み、拡張機能は設計段階）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
@@ -1431,6 +1431,193 @@ Git Commandを直接起動せず、CLIと同じGit Bootstrap Application Service
 限定的に一致させ、構造的Predicateをすべて満たす場合だけ補助Evidenceとして使用すること。
 回復時は旧Failureを監査履歴に残し、Baseline確立後にHuman Approvalを再要求すること。
 
+### 9.22 Live Progress / Run Observability
+
+#### FR-250
+
+rctはRuntime Backendや表示面に依存しない共通Progress Modelを提供すること。Workflow State、現在Phase、
+Activity、Role、Provider、Job ID、Review Round、Artifact Version、開始時刻、最終観測時刻、直前のReview
+Verdict、停止理由を、CLI、`rct watch`、Browserから同じ意味で参照できること。
+
+#### FR-251
+
+Workflow Stateと実行中Activityを分離すること。Workflow Stateは承認・遷移の正式状態、Activityは現在実行中の
+Jobまたは検証処理を示す観測Snapshotとする。Activity表示、Heartbeat、Terminal AnimationをGate判定や
+Artifact承認の根拠として使用してはならない。
+
+#### FR-252
+
+Job Coordinatorは少なくとも次のLifecycle Signalを、Agentまたは画面文字列の推測ではなくrct自身の制御点から
+発行すること。
+
+```text
+JobQueued
+JobStarted
+JobHeartbeat
+JobOutputObserved
+JobCompleted
+JobFailed
+JobCancelled
+ArtifactProduced
+ReviewChangesRequested
+ReviewApproved
+VerificationStarted
+VerificationCompleted
+RunWaiting
+RunCompleted
+```
+
+状態変化を表すSemantic EventはRun内で単調増加するSequenceを持ち、UTC Timestamp、Phase、Role、Provider、
+Job ID、Round、Workflow State、公開可能なSummaryを含めること。高頻度の`JobHeartbeat`と
+`JobOutputObserved`はActivity Revisionを持つLive Signalとして集約でき、永続Semantic Sequenceを無制限に
+消費してはならない。
+
+#### FR-253
+
+Runごとに`activity.json`相当のCurrent Activity ProjectionをAtomicに保存すること。少なくとも次を含めること。
+
+```text
+status: queued|running|waiting|completed|failed|cancelled|stale
+phase
+action
+role
+provider
+job_id
+round / max_rounds
+artifact_kind / candidate_version
+started_at
+last_heartbeat_at
+previous_verdict
+required_change_count
+```
+
+Activity ProjectionはState SnapshotやEvent Logの代替ではなく、再構築可能な表示用Projectionとすること。
+
+#### FR-254
+
+`rct start`、`plan`、`approve`、`implement`など長時間Commandは、Defaultで実行中Terminalへ進捗を表示すること。
+TTYでは同じ表示領域を更新してよいが、非TTYでは一Event一行の追記形式とすること。未知の残り時間や根拠のない
+Percentageを表示せず、現在工程、担当、Round、経過時間、最終Activityを表示すること。
+
+#### FR-255
+
+Progress出力はFinal Resultのstdoutと分離すること。DefaultではProgressをstderr、最終Resultをstdoutへ出力し、
+`--json`のstdoutを単一の有効なJSONとして維持すること。少なくとも次の選択を提供すること。
+
+```text
+--progress auto|tty|plain|jsonl|none
+```
+
+`auto`はTTYなら`tty`、非TTYなら`plain`を選択すること。Color、Unicode、Animationが利用できない環境でも
+意味を失わないこと。
+
+#### FR-256
+
+Read-only Commandとして次を提供すること。
+
+```text
+rct watch --project <path> [--run <id>] [--follow] [--format plain|jsonl]
+```
+
+既存Runへ途中参加し、現在Snapshotを直ちに表示した後、新しいEventとActivity変更を追跡できること。
+Terminal State到達時は最終Summaryを表示して正常終了し、RunのStateを変更してはならないこと。
+
+#### FR-257
+
+`rct status`は少なくともCurrent Job、Role、Provider、Action、Phase、Round、Candidate Version、Started At、
+Elapsed、Last Activity、Livenessを表示すること。`Review verdict`を現在Jobの判定と誤解させず、過去の結果は
+`Previous review verdict`と明示すること。生成中は確定済み旧Artifactと生成中Candidateを区別すること。
+
+#### FR-258
+
+`status`と`watch`は`--run <id>`でRunを指定できること。未指定時はProjectのCurrent Runを使用するが、
+表示にCurrent Pointer由来であることを明示すること。過去Runを選択してもCurrent Pointerを変更してはならない。
+
+#### FR-259
+
+Provider ProcessとVerification Processのstdout/stderrはProcess終了後の一括保存ではなく、生成された順にJob Logへ
+Stream保存すること。File modeは`0600`をDefaultとし、Process異常終了やrct Crash時も書込済み範囲を診断へ
+利用できること。UI ProgressはRaw Logの存在や自然言語をJob完了条件として扱ってはならない。
+
+#### FR-260
+
+Progress EventとBrowser DTOへPrompt、Raw stdout/stderr、Credential、Environment、秘密情報らしい値、任意の
+Project File内容を含めてはならない。Browserには安全な相対Artifact参照と正規化済みError CodeだけをDefaultで
+公開すること。Raw Job LogはLocal Fileとして保持し、専用の明示操作なしにBrowser配信しないこと。
+
+#### FR-261
+
+rct ControllerはJob出力の有無と独立して、実行中ProcessまたはBackend Sessionの観測結果からHeartbeatを更新すること。
+Defaultでは10秒以内の間隔で更新し、30秒以上Controller Heartbeatを観測できないActivityを`stale`として表示すること。
+`stale`は自動的な`FAILED`判定ではなく、Process/Session、State、ArtifactをRecovery Managerが再検査すべき観測状態とすること。
+
+#### FR-262
+
+Direct、Herdr、tmux Backendは共通ActivityとLifecycle Eventへ正規化すること。Herdrやtmuxの`idle`、Pane文字列、
+Process画面は補助観測とし、rctがJobをSubmitしていないBackendの状態をCurrent Runの進捗として表示してはならない。
+Backend固有Detailは任意表示に分離し、共通PhaseやGateの意味を変えてはならない。
+
+#### FR-263
+
+BrowserのRun Detailは、少なくとも次を視覚的に区別して表示すること。
+
+- Run全体StateとMode
+- 現在Activity Card（担当、Action、Round、経過時間、Liveness）
+- Requirements、Architecture、Plan、Human Approval、Milestone、Final ReviewのPhase Timeline
+- 完了、実行中、待機、修正中、失敗をText、Icon、Shapeで識別可能な状態
+- Previous ReviewのSummaryとRequired Change件数
+- 主要Artifact Link
+- Error/Waiting Reasonと次に取れるAction
+
+Activityのない待機状態を無限Spinnerで表示せず、Human Approval待ちなど具体的な理由を表示すること。
+
+#### FR-264
+
+Browser ProgressはServer-Sent EventsをDefault Transportとし、次を提供すること。
+
+```text
+GET /api/v1/runs/{run-id}/events?after_seq=<n>
+GET /api/v1/runs/{run-id}/stream
+```
+
+SSEはEvent Sequenceを`id`として送り、`Last-Event-ID`から再接続・Replayできること。接続維持用Commentと
+Run Activity Heartbeatを区別し、Browser切断でRunをCancelしないこと。SSE不能時はPollingへFallbackできること。
+
+#### FR-265
+
+Control Plane再起動、Browser再読込、Network一時切断後も、State Snapshot、Activity Projection、Event Sequenceから
+画面を再構成できること。重複EventをSequenceで排除し、欠落を検出した場合はSnapshot再取得後に追跡を再開すること。
+
+#### FR-266
+
+Progress UIはKeyboard操作、Screen Reader向けLive Region、Focus管理、200% Zoom、狭いViewport、Reduced Motionへ
+対応すること。ColorとAnimationを状態の唯一の表現にせず、毎HeartbeatをScreen Readerへ読み上げないこと。
+重大なPhase変更、失敗、Human Action要求だけを控えめに通知すること。
+
+#### FR-267
+
+Semantic EventのSequence採番と追記はRun State更新と同じCritical Sectionまたは同等の順序保証で行うこと。
+HeartbeatはWorkflow State Revisionを増加させず、Activity Projection専用Revisionを使用すること。Watcherは
+Writer Lockを取得せずRead-onlyで動作し、部分書込JSONを正式Eventとして解釈してはならない。
+
+#### FR-268
+
+Progress記録はAgent Jobの実行を著しく遅延させないこと。Raw Log書込にはBounded BufferまたはBackpressureを持たせ、
+UI Consumerが遅い場合もProvider Processを無期限に停止させないこと。HeartbeatをSemantic Event Logへ無制限に
+追記せず、Activity Projection更新または非永続SSE Heartbeatとして扱うこと。
+
+#### FR-269
+
+Job失敗時はProvider、Job ID、Phase、経過時間、Machine-readable Error Code、安全なSummary、Job Directoryへの
+CLI向け参照、再試行または確認Actionを表示すること。Process Exit Codeだけを表示して終わらず、Raw Error、絶対Path、
+秘密情報をBrowserへ無条件に公開しないこと。
+
+#### FR-270
+
+Progress Model、CLI Renderer、`watch`、Streaming Log、SSE Replay、Browser TimelineはFake ClockとFake Providerで
+決定的にTestできること。通常Testで実Providerを起動せず、Direct/Herdr/tmuxのContract Fixtureが同じPublic
+Progress Sequenceへ正規化されることを検証すること。
+
 ## 10. 非機能要件
 
 ### NFR-001: ポータビリティ
@@ -2025,6 +2212,75 @@ Run Stateを変更せず終了する。
 macOSとLinuxの両方で、InventoryのSymbolic Link非追跡、no-followな`.gitignore`更新、親Repository検出、
 Linked WorktreeおよびSubmoduleのFail ClosedをIntegration Testする。いずれの拒否CaseでもProject外File、
 既存Git metadata、Index、Commitを変更しない。
+
+### AC-073
+
+Fake ProviderでRequirementsの初稿、Claude Reviewの`changes_requested`、Codex Revision、再Reviewの
+`approved`を実行すると、起動CommandのTerminal、`rct watch`、Browser Run Detailが同じJob、Role、Provider、
+Round、Artifact Versionを同じ順序で表示し、最終Workflow Stateが一致する。
+
+### AC-074
+
+Plan Round 2をReviewerが実行中のRunで`rct status`を実行すると、Current JobがPlan Reviewer、ProviderがClaude、
+ActionがPlan v2のReview、Roundが`2/3`と表示される。Round 1の`changes_requested`は
+`Previous review verdict`として表示され、Current VerdictまたはCurrent Artifactと誤認されない。
+
+### AC-075
+
+長時間CommandをTTY、Pipe、`--json`で実行する。TTYは更新表示、Pipeは一Event一行、`--json`はstdoutに単一の
+有効なJSONを出力し、Progressはstderrへ分離される。`--progress none`ではProgressを出力せず、いずれも
+Workflow Resultは同一になる。
+
+### AC-076
+
+実行中Runへ`rct watch --follow`で途中参加すると、最初にCurrent Snapshot、続けて未観測EventをSequence順に
+表示する。別Terminalから複数Watcherを接続してもWriterをBlockせず、Terminal Stateで同じFinal Summaryを
+表示して正常終了する。
+
+### AC-077
+
+Fake Providerが複数Chunkを出力した後に異常終了またはControllerを模擬Crashさせる。Process終了前に各Chunkが
+`0600`のJob LogへFlushされ、再起動後に書込済み範囲を診断できる。Raw ChunkはProgress EventやBrowser DTOへ
+含まれない。
+
+### AC-078
+
+出力を行わない長時間Fake ProviderでもController Heartbeatにより`running`が維持される。Fake Clockで30秒以上
+Heartbeatを停止すると`stale`になるが、Workflow Stateは自動的に`FAILED`へ変化せず、再検査Actionが表示される。
+
+### AC-079
+
+Direct、Herdr、tmuxのContract Fixtureで同じLogical Jobを実行すると、公開されるActivityとSemantic Event Sequenceが
+Backend Detailを除いて一致する。rctがJobをSubmitしていないHerdr Sessionが`idle`でもCurrent RunのActivityへ
+混入しない。
+
+### AC-080
+
+BrowserがSSEのSequence Nまで受信後に切断し、`Last-Event-ID: N`で再接続すると、Nより後のEventだけをReplayする。
+Event欠落またはRetention範囲外を検出した場合はSnapshotを再取得し、重複Phaseや重複通知を表示しない。
+
+### AC-081
+
+Browser Run DetailをKeyboardのみ、Screen Reader、200% Zoom、狭いViewport、Reduced Motionで操作・確認できる。
+実行中、修正中、Human Approval待ち、失敗をColorやAnimationだけに依存せず識別でき、待機中に無限Spinnerや
+根拠のないPercentageを表示しない。
+
+### AC-082
+
+Prompt、Credentialらしい文字列、Environment、絶対Path、Raw stdout/stderrを含むFake Jobを実行しても、
+Progress Event、`status --json`のPublic Field、SSE、Browser DOMへ秘密情報が出ない。CLIの明示的な診断参照だけが
+権限を保ったLocal Job Directoryを示す。
+
+### AC-083
+
+旧VersionのSequenceなし`events.jsonl`を持つRunをRead-onlyで表示すると、File内の確定済み行順をLegacy Sequenceとして
+扱い、既存Fileを書き換えずCurrent Snapshotを構築する。新規RunのSequence欠落、重複、逆行はContract Errorとして
+検出する。
+
+### AC-084
+
+Jobが失敗すると、CLIとBrowserはProvider、Job ID、Phase、経過時間、Error Code、安全なSummary、次の確認または
+再試行Actionを表示する。Exit Codeだけの表示で終わらず、失敗表示そのものがRunの再実行やState変更を行わない。
 
 ## 16. 初期リスク
 

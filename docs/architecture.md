@@ -1,9 +1,9 @@
 # rct アーキテクチャ設計書
 
-- 文書版: 0.9.1-draft
+- 文書版: 0.10.0-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.10.1-draft
-- Draft拡張注記: Document Artifact移行方針、Approval Gate責務分離、rct名称移行を含む。
+- 対応要件: `requirements.md` 0.11.0-draft
+- Draft拡張注記: Document Artifact移行方針、Approval Gate責務分離、Live Progress、rct名称移行を含む。
 - 実装言語: Go
 - 対象OS: macOS / Linux
 
@@ -63,13 +63,14 @@ flowchart TB
     subgraph Presentation["Presentation"]
         CLI["CLI Commands"]
         HUMAN["Human Gate UI"]
-        STATUS["Status / Logs"]
+        STATUS["Status / Watch / Browser"]
     end
 
     subgraph Application["Application"]
         ORCH["Orchestrator"]
         WF["Workflow Engine"]
         JOBS["Job Coordinator"]
+        PROGRESS["Progress Projector"]
         GATE["Gate Evaluator"]
         RECOVERY["Recovery Manager"]
     end
@@ -90,6 +91,7 @@ flowchart TB
         VCSPORT["VCS Gateway"]
         VERIFYPORT["Verification Runner"]
         STOREPORT["State / Artifact Store"]
+        EVENTPORT["Event / Activity Store"]
         CLOCKPORT["Clock / ID Generator"]
     end
 
@@ -108,6 +110,7 @@ flowchart TB
     STATUS --> ORCH
     ORCH --> WF
     WF --> JOBS
+    JOBS --> PROGRESS
     WF --> GATE
     WF --> RECOVERY
     WF --> RUN
@@ -122,6 +125,7 @@ flowchart TB
     ORCH --> VCSPORT
     ORCH --> VERIFYPORT
     ORCH --> STOREPORT
+    PROGRESS --> EVENTPORT
     AGENTPORT --> CODEX
     AGENTPORT --> CLAUDE
     RUNTIMEPORT --> HERDR
@@ -129,6 +133,7 @@ flowchart TB
     RUNTIMEPORT --> DIRECT
     VCSPORT --> GIT
     STOREPORT --> FS
+    EVENTPORT --> FS
 ```
 
 ## 4. コンポーネント責務
@@ -223,6 +228,19 @@ Gate Evaluatorは決定的ロジックだけを持つ。設計品質やコード
 - Backend sessionの再接続
 - 復元不能Sessionの置換
 - 最後の確定チェックポイントからの再開
+
+### 4.7 Progress Projector
+
+責務:
+
+- Job CoordinatorとWorkflow Engineの制御点からSemantic Progress Eventを受け取る
+- Workflow StateとCurrent Activityを分離した表示用Projectionを生成する
+- Direct、Herdr、tmuxのBackend固有状態を共通Activityへ正規化する
+- CLI、`status`、`watch`、Browserへ同じSnapshotとEvent Sequenceを提供する
+- Controller Heartbeatとstale観測を管理する
+
+Progress ProjectorはGate Evaluatorではない。`activity.json`、Heartbeat、Terminal表示、Backendの
+`idle`/`working`、Providerの自然言語を承認、Job完了、Artifact確定の根拠にしてはならない。
 
 ## 5. ドメインモデル
 
@@ -713,6 +731,12 @@ loop-<short-run-id>-reviewer
 
 - Agent CLIの非対話モードを優先する
 - Jobごとに独立した子プロセスを起動する
+- stdoutとstderrをProcess終了までMemoryへ全量Bufferせず、生成順に権限制限されたJob LogへStreamする
+- Process RunnerはLog Sink、Output Observation Sink、Bounded Diagnostic Captureを分離する
+- Output ObservationはActivityの最終観測時刻を更新できるが、Job完了やArtifact確定を判定しない
+
+Herdrとtmuxも、可能な範囲で同じLog SinkとLifecycle Sinkへ接続する。Backendが提供する画面Captureは
+補助診断とし、共通Semantic EventはrctがSubmit、Wait、Validateする制御点で発行する。
 - stdout/stderrをストリーム保存する
 - Context cancellationをOS signalへ変換する
 - Graceful stop後、設定時間を超えた場合だけ強制終了する
@@ -781,6 +805,7 @@ Verification Runnerが実行できるのは `approved` または `user_configure
 ├── current-run
 └── runs/<run-id>/
     ├── state.json
+    ├── activity.json
     ├── request.md
     ├── project-profile.json
     ├── artifacts/
@@ -790,6 +815,9 @@ Verification Runnerが実行できるのは `approved` または `user_configure
     ├── logs/
     └── events.jsonl
 ```
+
+`state.json`は承認と遷移の正式Snapshot、`activity.json`は現在Jobを即時表示する再構築可能なProjectionである。
+両者は別Revisionを持ち、HeartbeatだけでWorkflow State Revisionを増加させない。
 
 ### 11.2 Atomic Write
 
@@ -836,6 +864,45 @@ artifacts/requirements/
 ```
 
 `seq` はRun内で単調増加させる。
+
+Semantic Eventの採番、Event追記、対応するState更新は同じRun Writer Critical Section内で順序保証する。
+`JobHeartbeat`は高頻度の監査Eventとして無制限に追記せず、Atomicな`activity.json`更新とLive Stream用の
+Ephemeral Eventを基本とする。WatcherはWriter Lockを取得せず、確定済みSnapshotと改行まで書込済みの
+JSONL Recordだけを読む。
+
+Sequenceを持たない旧RunはRead-only互換層で確定済み行番号をLegacy Sequenceとして扱う。旧Logをその場で
+書き換えず、新規RunではSequenceの欠落、重複、逆行をContract Errorとする。
+
+### 11.5 Current Activity Projection
+
+`activity.json`は少なくとも次を保持する。
+
+```json
+{
+  "schema_version": "progress-v1",
+  "activity_revision": 18,
+  "run_id": "run_20260802_ab12",
+  "status": "running",
+  "phase": "plan",
+  "action": "reviewing",
+  "role": "reviewer",
+  "provider": "claude",
+  "backend": "direct",
+  "job_id": "plan-r02-reviewer",
+  "round": 2,
+  "max_rounds": 3,
+  "artifact_kind": "plan",
+  "candidate_version": 2,
+  "previous_verdict": "changes_requested",
+  "required_change_count": 3,
+  "started_at": "2026-08-02T15:40:50Z",
+  "last_heartbeat_at": "2026-08-02T15:41:00Z"
+}
+```
+
+公開用ProjectionにPrompt、Raw stdout/stderr、Environment、Credential、任意Project File本文を含めない。
+Job終了、Human Action待ち、Run完了時も、最後のActivityを無条件に消去せず、`waiting`またはTerminal Statusと
+Reasonへ置き換える。
 
 ## 12. State Storeとロック
 
@@ -1155,6 +1222,7 @@ rct implement --project <path> \
 
 ```text
 rct status [--run <id>] [--json]
+rct watch [--run <id>] [--follow] [--format plain|jsonl]
 ```
 
 表示例:
@@ -1164,12 +1232,24 @@ Run: run_20260726_ab12
 Project: /projects/example
 Backend: herdr
 Mode: supervised
-State: REQUIREMENTS_REVIEW
-Current job: job_requirements_review_002
+State: PLAN_REVIEW
+Phase: Implementation Plan
+Current job: plan-r02-reviewer
+Current action: Claude reviewing Plan v2
+Role: reviewer
+Provider: claude
 Review round: 2/3
-Codex: idle
-Claude: working
+Previous review verdict: changes_requested (3 required changes)
+Started: 2026-08-02T15:40:50Z (elapsed 21s)
+Last activity: 2026-08-02T15:41:00Z (live)
 ```
+
+`status`はCurrent Snapshotを一度表示し、`watch`は同じSnapshotを表示後にSequence順のEventを追跡する。
+長時間Command自身も同じRendererを使用し、TTYでは再描画、非TTYでは追記行、AutomationではJSONLを選べる。
+Progressはstderr、最終Resultはstdoutへ分離し、`--json`のstdoutを壊さない。
+
+Browser Control Planeは同じQuery ServiceからSnapshotを取得し、SSEで`Last-Event-ID`以降をReplayする。
+SSE切断はRunのCancel理由にならず、Replay範囲外またはSequence GapではSnapshotを再取得する。
 
 ### 18.3 Resume
 
@@ -1555,6 +1635,24 @@ Spike結果によりProvider AdapterとRuntime Backendの詳細だけを調整�
 - 影響: GitBootstrapService、ImplementationPreflight、Bootstrap Receipt、Project Lock、`rct init`、
   `rct resume`、Browser IntakeのGit選択、Legacy Failed Run Migrationが必要になる。詳細は
   `docs/design/git-bootstrap-and-preflight-recovery.md`へ記録する
+
+### ADR-012: Live ProgressをWorkflow Authorityから分離する
+
+- 決定: Workflow Stateを正式な承認・遷移状態、Current Activityを再構築可能な表示Projection、
+  Semantic Eventを順序付きの監査・追跡入力として分離する。CLI、`watch`、Browserは同じProgress Query Serviceを使う
+- Liveness: ControllerがProvider出力と独立してHeartbeatを更新し、既定10秒以内、30秒未観測を`stale`とする。
+  `stale`は自動FailureでなくRecovery Managerによる再検査要求である
+- Transport: Terminalはstderr、AutomationはJSONL、BrowserはSequence付きSSEとPolling Fallbackを用いる。
+  Transport切断や遅いConsumerをWorkflow Failureへ伝播させない
+- Backend境界: Direct、Herdr、tmuxの表示はrctのJob制御点から共通Eventへ正規化し、未Submit Sessionの
+  `idle`や画面文字列をCurrent Runへ関連付けない
+- Security: Progress DTOへRaw Log、Prompt、Environment、Credential、任意File本文を含めず、Raw Job Logは
+  権限制限されたLocal診断情報として分離する
+- 理由: 長時間のAI Jobを利用者が安心して観測でき、途中参加・再接続・Crash診断を可能にしつつ、表示上の
+  推測や古いReview結果がGate判定へ混入することを防ぐため
+- 影響: Progress Projector、Activity Store、Streaming Process Runner、`rct watch`、共通Renderer、SSE Replay、
+  Browser Run Detail、Legacy Event互換層が必要になる。詳細は
+  `docs/design/live-progress-and-run-observability.md`へ記録する
 
 ## 26. 将来拡張
 

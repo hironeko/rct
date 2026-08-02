@@ -1,9 +1,9 @@
 # Local Browser Control Plane 詳細設計
 
-- 文書版: 0.3.1-draft
+- 文書版: 0.4.0-draft
 - 作成日: 2026-08-02
-- 対応要件: `docs/requirements.md` 0.10.1-draft FR-190〜FR-214、FR-230〜FR-245
-- 対応ADR: `docs/architecture.md` ADR-010、ADR-011
+- 対応要件: `docs/requirements.md` 0.11.0-draft FR-190〜FR-214、FR-230〜FR-270
+- 対応ADR: `docs/architecture.md` ADR-010、ADR-011、ADR-012
 - 状態: 設計完了（実装未着手）
 
 ## 1. 目的
@@ -351,8 +351,15 @@ GET /api/v1/workspaces/{root-id}/directories?path=<relative>
 GET /api/v1/intakes/{intake-id}
 GET /api/v1/runs
 GET /api/v1/runs/{run-id}
-GET /api/v1/runs/{run-id}/events
+GET /api/v1/runs/{run-id}/activity
+GET /api/v1/runs/{run-id}/events?after_seq=<n>&limit=<n>
+GET /api/v1/runs/{run-id}/stream
 ```
+
+Run APIはCLIの`status`と`watch`が使用するものと同じProgress Query Serviceへ接続する。SSEはSemantic Eventの
+Sequenceを`id`として返し、`Last-Event-ID`からReplayする。Connection KeepaliveはSemantic Sequenceを消費せず、
+Replay Gapでは`resync_required`を返す。SSE不能時はActivityとEventsのPollingへFallbackする。詳細Contractは
+`docs/design/live-progress-and-run-observability.md`を正とする。
 
 ### 7.2 State-changing
 
@@ -502,7 +509,7 @@ Router basenameは`/ui`とし、次を定義する。
 | `/ui/requests/new` | Existing project request form |
 | `/ui/applications/new` | New application form |
 | `/ui/intakes/:intakeId` | Saved intake confirmation and start action |
-| `/ui/runs/:runId` | Run state, review round, artifacts, failure reason |
+| `/ui/runs/:runId` | Current activity, phase timeline, review history, artifacts, failure/next action |
 
 Go Serverは`GET /ui/*`のうちStatic AssetとAPIに一致しないPathへ`dist/index.html`を返す。`/api/v1/*`、
 `/ui/assets/*`、未知の非UI PathはFallback対象外とする。Vite `base`は`/ui/`、Asset名はContent Hash付きとする。
@@ -524,6 +531,16 @@ Run Stateを保存しない。
 JavaScriptが無効またはAssetが欠落した場合、Go Serverは安全な静的Error Pageを返し、Mutationを実行しない。
 
 Client StateはForm Draftと表示中Runだけに限定する。正式なIntake/Run StateはAPIから取得する。
+
+### 9.6 Run progress presentation
+
+Run DetailはCurrent Activity、Phase Timeline、Recent Events、Artifacts、Next Actionを別領域として表示する。
+Workflow Stateと現在Jobを一つのLabelへ混在させず、過去のVerdictは`Previous review verdict`と明示する。
+Human Approval待ちなどActivityのない待機状態は無限Spinnerにしない。
+
+SSE ClientはSequenceで重複排除し、切断時に`Last-Event-ID`から再接続する。GapまたはSchema不一致ではRun
+Snapshotを再取得する。HeartbeatをScreen Readerへ毎回通知せず、Phase変更、Failure、Human Action要求だけを
+Live Regionへ通知する。ColorやAnimationを唯一の状態表現にせずReduced Motionへ対応する。
 
 ## 10. CLI
 
