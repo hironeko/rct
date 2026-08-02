@@ -1,6 +1,6 @@
 # rct 要件定義書
 
-- 文書版: 0.10.0-draft
+- 文書版: 0.10.1-draft
 - ステータス: Draft（rct Core Loop実装済み、拡張機能は設計段階）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
@@ -1317,12 +1317,18 @@ Git実行ファイル、Repository Root、有効な`HEAD`、Clean Worktree、Pro
 Git状態を少なくとも次へ分類すること。
 
 - `existing_repository`: Projectが有効なHEADを持つ既存Repository内にある
-- `rct_created_uninitialized`: rctが作成した新規Application Directoryで、Git未初期化である
-- `unmanaged_uninitialized`: rct所有と証明できない既存Directoryで、Git未初期化である
+- `managed_minimal_uninitialized`: Git Repository外にあり、`.rct/`を除くInventoryが、Project直下で
+  利用者が`--request-file`で選択した一つの通常Fileと任意の通常File `.gitignore`だけである
+- `unmanaged_uninitialized`: Git Repository外にあり、Managed Minimal条件に含まれないEntryが存在する
 - `unborn_repository`: `.git`は存在するがHEAD Commitがない
 - `unsafe_repository_boundary`: Symbolic Link、Root逸脱、不正なGit metadata、または許可されないNested Repositoryである
 
+Managed Minimal判定はBrowser Intakeの有無へ依存しないこと。CLI利用者が作成した最小Directoryも、
+Inventory、明示`--init-git`、TTY確認または`--yes`を根拠にManaged Modeを利用できること。
+
 親DirectoryのRepository内にあるProjectを、Git未初期化と誤判定してNested Repositoryを作成してはならない。
+v1ではLinked Worktree（`.git`が`gitdir:` Pointer Fileである構成）と、Project自身がSubmoduleである構成、
+Project配下にSubmoduleを含む構成を`unsafe_repository_boundary`として変更せず拒否すること。
 
 #### FR-232
 
@@ -1332,20 +1338,20 @@ CLIは`rct init --project <path>`を提供し、`rct start`から同じGit Boots
 
 #### FR-233
 
-rctが作成した新規Application Directoryでは、利用者がGit初期化を選択した場合に限り、次を一つの
-Bootstrap処理として実行できること。
+`managed_minimal_uninitialized`では、Browser Intakeの有無にかかわらず、利用者がGit初期化を明示した
+場合に限り、次を一つのBootstrap処理として実行できること。
 
 1. Git利用可否とAuthor identityを変更前に検査する
 2. Repositoryを初期化する
 3. Rootの`.gitignore`へ`/.rct/`を重複なく追加する
-4. rctが作成した`request.md`と`.gitignore`だけをStageする
+4. 利用者が選択したRequest Fileと`.gitignore`だけをStageする
 5. 初回Commitを作成し、そのCommit SHAを記録する
 
 Source Scaffold、Dependency install、Remote追加、Pushはこの処理へ含めないこと。
 
 #### FR-234
 
-rct所有と証明できない非空Directoryでは、`git init`、Stage、Commitを暗黙に行わないこと。
+Managed Minimal条件を超える非空Directoryでは、`git init`、Stage、Commitを暗黙に行わないこと。
 既存Fileを初回Baselineへ採用する場合は`--adopt-existing`相当の明示Option、対象File一覧とDigestの
 事前表示、対話確認を必要とすること。非対話実行では追加の明示確認Optionを要求すること。
 
@@ -1380,6 +1386,8 @@ Git Bootstrapまたは環境修正後、利用者は`rct resume --project <path>
 再開できること。ResumeはRecovery Planを表示し、Project Lock取得、Reason Code再検査、Plan Hash、
 Artifact Hash、State Revision、Git Bootstrap Receipt、現在HEADとWorktreeを検証してからだけ、保存済みの
 Resume Targetへ遷移すること。Agentによる要件・設計・Plan生成を再実行してはならない。
+v1の`resume`はGit BootstrapおよびImplementation Preflight由来のInterruptionだけを対象とし、Review上限、
+Verification上限、Reviewerの`blocked`など一般的なResumeは別Incrementとすること。
 
 #### FR-240
 
@@ -1396,9 +1404,12 @@ Dirty Worktreeを自動Commit、Reset、Clean、Stash、Checkoutしてはなら�
 
 #### FR-242
 
-Git Bootstrap、Resume、Implement PreflightはProject単位Writer LockとExpected State Revisionを共有し、
-同じProjectに対する二つのBootstrapまたはImplementation開始を同時成功させてはならない。Lock競合は
-`ConcurrentRunError`として扱い、別Runの`.git`、Index、Stateを変更してはならない。
+Git Bootstrap、Resume、Implement Preflight、Milestone Implementation、Verification、Code Review Subject
+生成、Final VerificationはProject単位Writer LockとExpected State Revisionを共有すること。Bootstrap Applyは
+変更処理の間、`rct implement`は開始PreflightからImplementation Loopの完了・中断・失敗まで同じ排他Leaseを
+保持すること。同じProjectの別Runは、実装中RunがLeaseを保持している間は`IMPLEMENTATION_PREFLIGHT`を
+通過してはならない。Lock競合は`ConcurrentRunError`として扱い、別Runの`.git`、Index、Stateを変更しては
+ならない。Process crash時はOS Lock解放後にRecovery検査から再取得し、MetadataだけでLock所有を判断しないこと。
 
 #### FR-243
 
@@ -1416,6 +1427,8 @@ Git Commandを直接起動せず、CLIと同じGit Bootstrap Application Service
 
 旧VersionがGit Repository不足を理由に`FAILED`へ遷移させたRunは、Failure文字列だけを一般的なResume権限へ
 使用せず、既知の旧Event列、Approval、Plan Hash、未開始Milestoneを検証した限定Migrationで回復できること。
+旧Failure文字列は`inspect git worktree`と`not a git repository`などVersionごとの既知Patternへ完全一致または
+限定的に一致させ、構造的Predicateをすべて満たす場合だけ補助Evidenceとして使用すること。
 回復時は旧Failureを監査履歴に残し、Baseline確立後にHuman Approvalを再要求すること。
 
 ## 10. 非機能要件
@@ -1431,7 +1444,7 @@ Git Commandを直接起動せず、CLIと同じGit Bootstrap Application Service
 ### NFR-002: 信頼性
 
 - 状態ファイルは一時ファイルへの書き込みとrenameで原子的に更新する
-- 同一プロジェクト・同一Runへの多重起動をロックで防止する
+- 同一Projectの複数RunによるGit Writer処理をProject単位Lockで防止する
 - タイムアウトとキャンセルを全Agent Jobへ伝播する
 - 異常終了後に最後の確定チェックポイントを復元できる
 
@@ -1953,8 +1966,9 @@ Review、必須修正のない`changes_requested`、未解決事項のない`blo
 
 ### AC-062
 
-rctが新規作成したApplication DirectoryでGit初期化を選択すると、`request.md`と`/.rct/`を含む
-`.gitignore`だけを追跡した初回Commitが作成され、有効なHEAD、Clean Worktree、Bootstrap Receiptを得る。
+Browser Intakeが作成した新規Application、またはCLI利用者が作成した`request.md`以外に利用者Fileを持たない
+最小DirectoryでGit初期化を選択すると、Request Fileと`/.rct/`を含む`.gitignore`だけを追跡した初回Commitが
+作成され、有効なHEAD、Clean Worktree、Bootstrap Receiptを得る。
 Remote追加、Push、Source Scaffold、Dependency installは実行されない。
 
 ### AC-063
@@ -1995,14 +2009,22 @@ Implementerを起動せずApprovalをstaleとして停止する。同じHashとB
 
 ### AC-070
 
-同一Projectに対する二つのGit BootstrapまたはBootstrapとImplementation開始を並行実行すると、一つだけが
-Project LockとExpected Revisionを取得し、他方は`ConcurrentRunError`でGitとRun Stateを変更せず終了する。
+同一Projectに対する二つのGit Bootstrap、または二つの異なるRunの`rct implement`を並行実行すると、一つだけが
+Project Writer LeaseとExpected Revisionを取得する。Lease取得者がMilestone実装、Verification、Code Review、
+Final Verificationを行っている間、他方は`IMPLEMENTATION_PREFLIGHT`を通過せず、`ConcurrentRunError`でGitと
+Run Stateを変更せず終了する。
 
 ### AC-071
 
 旧VersionでGit未初期化Errorにより`FAILED`となった、Implementation未開始かつ承認済みPlanを持つRunを
 明示Resumeすると、限定Migration、Git Bootstrap、Baseline検証、Human Approval再確認を経て同じRun IDで
 実装可能になる。Requirements、Architecture、PlanのAgent Jobは再実行されない。
+
+### AC-072
+
+macOSとLinuxの両方で、InventoryのSymbolic Link非追跡、no-followな`.gitignore`更新、親Repository検出、
+Linked WorktreeおよびSubmoduleのFail ClosedをIntegration Testする。いずれの拒否CaseでもProject外File、
+既存Git metadata、Index、Commitを変更しない。
 
 ## 16. 初期リスク
 

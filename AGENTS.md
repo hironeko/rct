@@ -83,6 +83,10 @@ Preserve existing user changes. Do not perform the following without an explicit
 - automatic commit
 - automatic merge
 - production deployment
+
+The only automatic-commit exception is the single initial baseline commit performed by the explicitly authorized
+Git Bootstrap Application Service defined in ADR-011. That exception does not authorize agent commits, later
+workflow commits, remote mutation, push, merge, reset, or clean.
 - secret modification or disclosure
 
 Require a clean worktree by default before an implementation phase. If dirty-worktree support is introduced, capture the starting diff as a baseline and never treat pre-existing changes as rct output.

@@ -1,8 +1,8 @@
 # Git Bootstrap / Implementation Preflight / Recovery 詳細設計
 
-- 文書版: 0.1.0-draft
+- 文書版: 0.1.1-draft
 - 作成日: 2026-08-02
-- 対応要件: `docs/requirements.md` 0.10.0-draft FR-230〜FR-245
+- 対応要件: `docs/requirements.md` 0.10.1-draft FR-230〜FR-245
 - 対応ADR: `docs/architecture.md` ADR-011
 - 状態: Claude Review待ち
 
@@ -40,12 +40,14 @@ implement: inspect git worktree: ... fatal: not a git repository
 - Dirty Worktreeの自動Commit、Stash、Reset、Clean
 - 利用者のGit Author identityの自動生成またはGlobal Config変更
 - 任意の`FAILED` Runを強制的に復活させる機能
+- Review上限、Verification上限、Reviewer `blocked`などGit/Preflight以外の一般的な`resume`
+- Linked WorktreeとSubmoduleのBootstrapまたはImplementation対応（v1ではFail Closed）
 
 ## 3. 設計原則
 
 1. Git変更はAgentではなくrct Application Serviceだけが行う。
 2. Read-onlyなPlanと明示Authorizationを、変更を行うApplyから分離する。
-3. 新規rct所有Directoryと既存利用者Directoryを同じ自動化Levelで扱わない。
+3. 最小InventoryのDirectoryと既存Fileを含むDirectoryを同じ自動化Levelで扱わない。
 4. Initial Commitは確定済みInventoryだけを対象とし、Globや`git add .`を使わない。
 5. Preflight不足は成果物の失敗ではないため、回復可能な停止として扱う。
 6. ResumeはRun ID、State Revision、Artifact Hash、Baselineを再検証する。
@@ -59,8 +61,8 @@ implement: inspect git worktree: ... fatal: not a git repository
 | Classification | 条件 | Default action |
 |---|---|---|
 | `existing_repository` | 有効なRepository RootとHEADがある | Clean検査へ進む |
-| `rct_created_uninitialized` | rct Intakeが新規作成を証明し、許可File以外がない | 明示選択後にBootstrap可能 |
-| `unmanaged_uninitialized` | 既存DirectoryでGit metadataがない | Adopt Authorizationを要求 |
+| `managed_minimal_uninitialized` | Git Repository外で、`.rct/`を除くEntryが選択Requestと任意の`.gitignore`だけ | Intake有無に関係なく明示選択後にBootstrap可能 |
+| `unmanaged_uninitialized` | Git Repository外で、Managed Minimal以外のEntryがある | Adopt Authorizationを要求 |
 | `unborn_repository` | RepositoryはあるがHEADがない | Baseline Commit Planを作成 |
 | `unsafe_repository_boundary` | Root逸脱、危険なNested Repository、metadata異常 | Fail Closed |
 
@@ -71,10 +73,21 @@ implement: inspect git worktree: ... fatal: not a git repository
 3. `git rev-parse --show-toplevel`相当で親Repositoryを含めて探索する。
 4. `.git`の有無だけで未初期化と判断しない。
 5. HEAD、Worktree、Index、Repository RootとProject相対Pathを取得する。
-6. Intake ownershipとDirectory Inventoryを照合する。
+6. 選択Request、Directory Inventory、任意のIntake ownershipを照合する。
 
 親Repositoryが見つかった場合、Nested `.git`は作らない。MVPではRepository全体がCleanであることを
 要求し、Project Subdirectoryだけを独立Baselineとして扱わない。
+
+CLIのManaged Minimal判定はIntake provenanceを必要としない。Canonical Project直下で、`.rct/`を除いた
+Entryが`--request-file`で選択された一つの通常Fileと任意の通常File `.gitignore`だけであれば候補となる。
+TTY確認または非対話の`--yes`は引き続き必須である。その他のFile、Directory、特殊Fileが一つでもあれば
+Adopt Modeを要求する。
+
+v1では次を`unsafe_repository_boundary`として明示的に拒否する。
+
+- `.git`が`gitdir:`を指すFileであるLinked Worktree
+- Project自身がGit Submoduleである構成
+- Project InventoryにGit Submodule Entryを含む構成
 
 ## 5. CLI契約
 
@@ -89,7 +102,7 @@ rct init \
   [--json]
 ```
 
-- `--adopt-existing`なしではrct所有の新規Directoryまたは許可Fileだけを持つDirectoryに限定する。
+- `--adopt-existing`なしではManaged Minimal Inventoryを持つDirectoryに限定する。Intakeは必須でない。
 - TTYではApply前にInventory、File数、合計Size、Digest、Commit Messageを表示する。
 - 非TTYでは変更を伴う実行に`--yes`を要求する。
 - `--adopt-existing --yes`は既存FileをBaselineへ含める強いAuthorizationとして監査記録へ残す。
@@ -105,7 +118,7 @@ rct start \
   --until plan
 ```
 
-`--init-git`はBootstrap Serviceへの明示Authorizationである。既存非空Directoryでは、さらに
+`--init-git`はBootstrap Serviceへの明示Authorizationである。Managed Minimalを超えるDirectoryでは、さらに
 `--adopt-existing`または事前の`rct init`を要求する。`start`独自のGit処理は実装しない。
 
 ### 5.3 Resume
@@ -172,6 +185,11 @@ type GitBootstrapService interface {
 `Plan`はRead-only、`Apply`はState changing operationとする。`Apply`はProject Lockを取得後に
 InventoryとExpected Revisionを再計算し、一致しない場合は一度もGit変更を行わない。
 
+Project LockはRun Directory配下の既存`state.lock`とは別に、Project全体で一つのWriter Leaseとして
+`.rct/project-writer.lock`へ置く。OS advisory lockを所有権の正本とし、Run ID、Process ID、取得時刻などの
+Metadataは診断用途だけに使う。Bootstrap ApplyとResumeは変更・遷移中だけLeaseを保持し、
+`rct implement`は§12.1の期間を通して保持する。
+
 ## 7. Baseline Inventory
 
 各Entryは次を含む。
@@ -194,8 +212,8 @@ InventoryとExpected Revisionを再計算し、一致しない場合は一度も
 - Socket、Device、FIFOなど通常FileでないEntryは拒否する。
 - Inventory確認後にPath、Size、Mode、Hashが変わればApplyを拒否する。
 
-Managed Modeでは`request.md`とrctが管理した`.gitignore`だけを対象とする。その他のEntryがある場合は
-Adopt Modeなしに続行しない。
+Managed Modeでは、Intake provenanceに関係なく、利用者が選択したRequest FileとBootstrap Planが更新する
+`.gitignore`だけを対象とする。その他のEntryがある場合はAdopt Modeなしに続行しない。
 
 ## 8. `.gitignore`契約
 
@@ -249,6 +267,9 @@ Managed Modeの処理順:
 
 Commit MessageのDefaultは`chore: initialize project for rct`とする。
 
+Bootstrap ApplyのProject Writer Leaseは手順4の再検査前に取得し、ReceiptとEventの永続化が完了するか、
+Interruptionを記録して処理を終了するまで解放しない。
+
 ## 11. Failureと部分完了
 
 変更前検査で検出できるFailureは、Git metadata作成前に返す。
@@ -292,6 +313,23 @@ Planning承認後、次を検査する。
 
 Supervised Modeではこの後にHuman Approvalを受け付ける。Approval Recordは`plan_sha256`と
 `baseline_commit`を含む。`implement`開始直前に同じPreflightを再実行する。
+
+### 12.1 Project Writer Leaseの保持範囲
+
+`rct implement`は開始Preflightの再検査前にProject Writer Leaseを取得し、次のいずれかまで同じLeaseを
+保持する。
+
+- 全Milestone、Final Verification、Final Reviewが完了する
+- `WAITING_FOR_HUMAN`、`BLOCKED`、`FAILED`、`COMPLETED`のいずれかへ確定遷移する
+- ProcessがCancelまたはCrashし、OSがLockを解放する
+
+Lease保持中はMilestone Implementation、Verification Command、Code Review Subject用Git Diff、Fix、
+Final Verificationをすべて同一Writer区間として扱う。別RunはRequirements、Architecture、Planなど
+Read-only工程を実行できるが、同じProjectの`IMPLEMENTATION_PREFLIGHT`を通過できない。
+
+TransitionごとにLeaseを解放・再取得すると別RunがMilestone間へ割り込めるため、MVPでは実装Command全体の
+連続Leaseを採用する。Crash後はMetadataを信用せずOS Lockを再取得し、HEAD、Index、Worktree、Run Eventを
+Recovery検査してからだけ再開する。
 
 ## 13. 状態遷移
 
@@ -341,12 +379,16 @@ Git Preflight Resume条件:
 Approval前Interruptionは`AWAITING_IMPLEMENTATION_APPROVAL`へ戻す。Approval後Interruptionは、Plan Hashと
 Baseline CommitがApproval Recordと一致する場合だけ`IMPLEMENTATION_READY`へ戻す。
 
+v1のResume HandlerはGit BootstrapとImplementation PreflightのReason Codeだけを登録する。その他の
+`WAITING_FOR_HUMAN`理由を受け取った場合は対象外であることを明示し、Stateを変更しない。
+
 ## 15. Legacy Failed Run Recovery
 
 旧VersionのGit不足Runは構造化Reasonを持たないため、次をすべて満たす場合だけMigration対象とする。
 
 - `FAILED`直前が`IMPLEMENTATION_READY`
-- Failure EventがImplementation開始前のGit inspectionである
+- Failure EventがImplementation開始前のGit inspectionであり、既知VersionのFailureが
+  `inspect git worktree`と`not a git repository`など許可済みPatternに限定一致する
 - Current MilestoneとImplementation Artifactが未作成である
 - Approval対象Plan Hashと現在Plan Hashが一致する
 - ArtifactとReviewがすべて有効である
@@ -354,6 +396,9 @@ Baseline CommitがApproval Recordと一致する場合だけ`IMPLEMENTATION_READ
 Migration後は`WAITING_FOR_HUMAN / GIT_BOOTSTRAP_REQUIRED`へ置く。Bootstrap成功後、旧Approvalを
 削除せず`superseded_at`と理由を記録し、`AWAITING_IMPLEMENTATION_APPROVAL`へ戻す。利用者は新しい
 Baseline Commitへ再承認する。Agent Jobは再実行しない。
+
+Legacy Failure文字列は補助Evidenceであり、それだけではRecoveryを許可しない。上記のState、Artifact、
+Milestone、Approval Predicateをすべて満たすことを必須とする。
 
 ## 16. Browser統合
 
@@ -409,10 +454,14 @@ EventにFile内容、Environment、Credentialを含めない。InventoryはRecei
 - 既存非空DirectoryをAdoptなしで拒否する
 - Inventory driftをApply前に拒否する
 - 親Repository配下でNested `.git`を作らない
+- Linked WorktreeとSubmoduleをFail Closedで拒否する
 - Hookが存在しても実行しない
 - Commit失敗後の再実行が冪等である
 - Project Lock競合で一件だけ成功する
 - Git不足で旧`FAILED`となったFixtureを同じRun IDでApproval待ちへ戻す
+
+Symbolic Link非追跡、no-followな`.gitignore`更新、親Repository、Linked Worktree、SubmoduleのIntegration
+TestはmacOSとLinuxの両方で成功することをG3以降へ進むTechnical Gateとする。
 
 ### End-to-end
 

@@ -1,8 +1,8 @@
 # rct アーキテクチャ設計書
 
-- 文書版: 0.9.0-draft
+- 文書版: 0.9.1-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.10.0-draft
+- 対応要件: `requirements.md` 0.10.1-draft
 - Draft拡張注記: Document Artifact移行方針、Approval Gate責務分離、rct名称移行を含む。
 - 実装言語: Go
 - 対象OS: macOS / Linux
@@ -956,8 +956,15 @@ CLI / Browser Intake
 ```
 
 `Plan`はRead-onlyであり、`Apply`はPlan ID、Inventory Digest、Expected Revisionが一致する場合だけ
-実行する。rct所有の新規Directory以外を採用する場合は、UI確認またはCLIのAdopt Authorizationを
-追加で必要とする。
+実行する。Intakeの有無にかかわらず、選択Requestと任意の`.gitignore`だけを持つ最小Inventoryは
+Managed Mode候補とする。それ以外の既存Directoryを採用する場合は、UI確認またはCLIのAdopt
+Authorizationを追加で必要とする。Linked WorktreeとSubmoduleはv1でFail Closedとする。
+
+Project Writer Lockは`.rct/project-writer.lock`のOS advisory lockを正本とし、既存のRun単位
+`state.lock`と分離する。Bootstrap ApplyとResumeは変更処理中だけ保持する。`rct implement`は開始
+Preflightから全Milestone、Verification、Code Review用Diff、Final Verificationを経て、完了または
+確定停止するまで同じLeaseを保持する。別Runは同じProjectの`IMPLEMENTATION_PREFLIGHT`を通過できない。
+Process crash後はOS Lockを再取得し、Metadataだけを所有権根拠にしない。
 
 ### 14.2 Preflight interruptionとResume
 
@@ -1533,14 +1540,16 @@ Spike結果によりProvider AdapterとRuntime Backendの詳細だけを調整�
 
 ### ADR-011: Git Bootstrapを明示的なApplication Serviceとして提供する
 
-- 決定: 実装対象には有効なGit Baselineを必須とし、rctが作成した新規Applicationまたは利用者が
-  明示的にAdoptしたDirectoryに限って、Git初期化、`/.rct/`除外、初回Commitをrctが実行できる
+- 決定: 実装対象には有効なGit Baselineを必須とし、選択Request以外に利用者Fileを持たない最小Directory、
+  または利用者が明示的にAdoptしたDirectoryに限って、Git初期化、`/.rct/`除外、初回Commitをrctが実行できる。
+  最小Directoryの判定はBrowser Intakeの有無へ依存しない
 - Approval境界: BootstrapとImplementation PreflightをHuman Implementation Approvalより前に完了し、
   ApprovalをPlan HashとBaseline CommitへBindingする
 - Recovery: Git不足、Unborn HEAD、Dirty Worktreeなど利用者が修正可能な条件は`FAILED`ではなく
   `WAITING_FOR_HUMAN`へ停止し、構造化ReasonとRecovery Planから同じRunを明示Resumeする
 - 既存Directory: rct所有でないFileを暗黙にCommitせず、Inventory表示、Digest固定、Adopt Authorizationを
-  必須とする。Nested Repository、Remote追加、Push、Hook実行、署名、Reset、Cleanは行わない
+  必須とする。Nested Repository、Linked Worktree、Submodule、Remote追加、Push、Hook実行、署名、Reset、
+  Cleanはv1で許可しない
 - 理由: Git差分を実装Reviewの正本にする以上、利用者へ手作業だけを要求せず、初期Baseline作成と
   回復経路をrctの安全境界内で一貫して提供する必要があるため
 - 影響: GitBootstrapService、ImplementationPreflight、Bootstrap Receipt、Project Lock、`rct init`、

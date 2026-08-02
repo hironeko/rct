@@ -2,7 +2,7 @@
 
 - 文書版: 0.3.1-draft
 - 作成日: 2026-08-02
-- 対応要件: `docs/requirements.md` 0.10.0-draft FR-190〜FR-214、FR-230〜FR-245
+- 対応要件: `docs/requirements.md` 0.10.1-draft FR-190〜FR-214、FR-230〜FR-245
 - 対応ADR: `docs/architecture.md` ADR-010、ADR-011
 - 状態: 設計完了（実装未着手）
 

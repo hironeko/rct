@@ -84,6 +84,10 @@ Agent sessionは失われる可能性がある一時的な実行資源として�
 - 自動commit
 - 自動merge
 - 本番デプロイ
+
+自動commitの唯一の例外は、ADR-011で定義したGit Bootstrap Application Serviceが利用者の明示承認後に
+作成する一回の初期Baseline Commitとする。この例外はAgentによるcommit、後続Workflowのcommit、Remote変更、
+push、merge、reset、cleanを許可しない。
 - 秘密情報の変更または出力
 
 実装工程では、デフォルトでClean Worktreeを要求する。Dirty Worktree対応を実装する場合は、開始時の差分をBaselineとして保存し、既存変更をrctの成果として扱わない。
