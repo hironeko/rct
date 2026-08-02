@@ -1,6 +1,6 @@
 # rct 要件定義書
 
-- 文書版: 0.11.0-draft
+- 文書版: 0.11.1-draft
 - ステータス: Draft（rct Core Loop実装済み、拡張機能は設計段階）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
@@ -1582,11 +1582,14 @@ GET /api/v1/runs/{run-id}/stream
 
 SSEはEvent Sequenceを`id`として送り、`Last-Event-ID`から再接続・Replayできること。接続維持用Commentと
 Run Activity Heartbeatを区別し、Browser切断でRunをCancelしないこと。SSE不能時はPollingへFallbackできること。
+Durable Event LogはRun存続中にPruneせず、SSE ServerのBounded In-memory Backlog外からの再接続はDurable Logから
+Replayすること。遅いSSE Clientは切断できるが、Runを停止せず再接続可能にすること。
 
 #### FR-265
 
 Control Plane再起動、Browser再読込、Network一時切断後も、State Snapshot、Activity Projection、Event Sequenceから
 画面を再構成できること。重複EventをSequenceで排除し、欠落を検出した場合はSnapshot再取得後に追跡を再開すること。
+In-memory Backlog範囲外であることだけをEvent欠落として扱ってはならない。
 
 #### FR-266
 
@@ -1599,12 +1602,16 @@ Progress UIはKeyboard操作、Screen Reader向けLive Region、Focus管理、20
 Semantic EventのSequence採番と追記はRun State更新と同じCritical Sectionまたは同等の順序保証で行うこと。
 HeartbeatはWorkflow State Revisionを増加させず、Activity Projection専用Revisionを使用すること。Watcherは
 Writer Lockを取得せずRead-onlyで動作し、部分書込JSONを正式Eventとして解釈してはならない。
+Sequenceは独立Counterの事前予約ではなく、Writer Lock取得後にDisk上の最後の確定Eventを再読込し、そのEffective
+Sequenceへ1を加えて採番すること。Crashにより未使用Sequence Gapを作ってはならない。
 
 #### FR-268
 
 Progress記録はAgent Jobの実行を著しく遅延させないこと。Raw Log書込にはBounded BufferまたはBackpressureを持たせ、
 UI Consumerが遅い場合もProvider Processを無期限に停止させないこと。HeartbeatをSemantic Event Logへ無制限に
-追記せず、Activity Projection更新または非永続SSE Heartbeatとして扱うこと。
+追記せず、Activity Projection更新または非永続SSE Heartbeatとして扱うこと。Provider Pipe読取とDisk Log書込も
+Byte上限付きQueueで分離し、Disk書込の継続的な遅延または失敗でQueueが上限へ達した場合はRaw Outputを黙って
+破棄せず、Jobを`LOG_SINK_BACKPRESSURE`として安全に停止し、Logが不完全であることを診断情報へ記録すること。
 
 #### FR-269
 
@@ -2257,7 +2264,8 @@ Backend Detailを除いて一致する。rctがJobをSubmitしていないHerdr 
 ### AC-080
 
 BrowserがSSEのSequence Nまで受信後に切断し、`Last-Event-ID: N`で再接続すると、Nより後のEventだけをReplayする。
-Event欠落またはRetention範囲外を検出した場合はSnapshotを再取得し、重複Phaseや重複通知を表示しない。
+In-memory Backlog外でもDurable Event LogからReplayする。Durable Logの欠落、破損、Schema不一致を検出した場合は
+Snapshotを再取得し、重複Phaseや重複通知を表示しない。遅いClientをServerが切断しても同じ手順で再接続できる。
 
 ### AC-081
 
@@ -2273,9 +2281,10 @@ Progress Event、`status --json`のPublic Field、SSE、Browser DOMへ秘密情�
 
 ### AC-083
 
-旧VersionのSequenceなし`events.jsonl`を持つRunをRead-onlyで表示すると、File内の確定済み行順をLegacy Sequenceとして
-扱い、既存Fileを書き換えずCurrent Snapshotを構築する。新規RunのSequence欠落、重複、逆行はContract Errorとして
-検出する。
+旧VersionのSequenceなし、またはSequenceあり・なしが混在する`events.jsonl`を持つRunは、Run終了までFile内の
+確定済み物理行順をEffective Legacy Sequenceとして扱う。既存Sequence Fieldは非Authorityとし、既存Fileを
+書き換えずCurrent Snapshotを構築する。Upgrade後のWriterも同じRunへLegacy互換Recordを追記し、新旧形式を
+切り替えない。`progress-v1`として新規作成されたRunのSequence欠落、重複、逆行はContract Errorとして検出する。
 
 ### AC-084
 

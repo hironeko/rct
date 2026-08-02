@@ -1,9 +1,9 @@
 # Live Progress and Run Observability 詳細設計
 
-- 文書版: 0.1.0-draft
+- 文書版: 0.1.1-draft
 - 作成日: 2026-08-03
 - ステータス: Claude Review待ち
-- 対応要件: `docs/requirements.md` 0.11.0-draft（FR-250〜270、AC-073〜084）
+- 対応要件: `docs/requirements.md` 0.11.1-draft（FR-250〜270、AC-073〜084）
 - 対応ADR: `docs/architecture.md` ADR-012
 
 ## 1. 目的
@@ -177,6 +177,10 @@ intake -> requirements -> architecture -> plan -> implementation_approval
 ### 6.1 Ordering and atomicity
 
 - State変更を伴うEventはRun Writer Lock内でSequence採番、State Atomic Write、Event追記を順序保証する。
+- Sequenceは独立Counterで事前予約しない。Writer Lock取得後、Disk上の最後の改行で確定したEvent Recordを
+  再読込し、そのEffective Sequenceへ1を加えて採番する。`state.json`やMemory Cacheだけから推測しない。
+- Crashが採番前またはAppend前に起きれば番号は消費されず、Append後に起きればRecordが次回Tailとなるため、
+  未使用Sequence Gapを作らない。部分末尾Recordは確定Eventとして数えずRecovery対象にする。
 - Activityは独立した`activity_revision`を持ち、Atomic Renameで更新する。
 - HeartbeatはState RevisionとSemantic Sequenceを増やさない。
 - ReaderはWriter Lockを取らず、Atomic Snapshotと改行で確定したJSONL行だけを読む。
@@ -184,8 +188,14 @@ intake -> requirements -> architecture -> plan -> implementation_approval
 
 ### 6.2 Legacy events
 
-Sequenceなしの旧Event Logは、Read-only互換Readerが確定済みの物理行番号をLegacy Sequenceとして扱う。
-既存Fileは書き換えない。新規`progress-v1` RunではSequence欠落、重複、逆行をErrorとする。
+Run作成時に`event_protocol_version`を固定する。FieldがないRunは`legacy-v0`としてRun終了まで扱う。
+現行実装のようにSequenceあり・なしが混在する旧Event Logでも、Read-only互換Readerは各Recordに保存された
+SequenceをAuthorityとせず、確定済み物理行番号をEffective Legacy Sequenceとして扱う。
+
+Upgrade後の`plan`、`implement`、`resume`も、そのRunへはLegacy互換Recordを追記し、途中から
+`progress-v1`へ切り替えない。既存Fileを移行目的で書き換えない。`status`、`watch`、SSEはEffective Legacy
+SequenceをPublic IDとして利用できる。新規`progress-v1` RunだけがPersisted SequenceをAuthorityとし、欠落、
+重複、逆行をErrorとする。
 
 ## 7. Job lifecycle
 
@@ -243,6 +253,18 @@ type ProcessResult struct {
 - Diagnostic Captureは上限を持つTail Bufferとし、秘密情報をPublic Errorへコピーしない。
 - Disk Write ErrorはJob診断を失う重大Errorとして安全に停止する。
 - 遅いObserverはBounded Queueから切り離し、Provider Processを無期限にBlockしない。
+
+OS Pipe ReaderとDisk Writerも直接同期させず、stdout/stderrごとのByte上限付きQueueで分離する。Defaultは
+各Stream 4 MiB、継続飽和判定は5秒とし、実装時に定数と負荷Testで固定する。Diskが追従できずQueueが継続して
+上限へ達した場合、全Log保持とProcess継続を同時には保証できないため、Raw Outputを黙ってDropする代わりに次を行う。
+
+1. Activityへ`LOG_SINK_BACKPRESSURE`を記録する。
+2. Provider JobへCancelを送り、Grace Period後に強制終了する。
+3. Pipe Readerは子Process回収までBounded Diagnostic TailへDrainし、追加内容が非永続であることを記録する。
+4. 保存済みLogを`incomplete: true`としてFinal Job Diagnosticへ残す。
+5. Workflowは通常のProvider成功として扱わず、安全な再試行Actionを提示する。
+
+これによりSlow DiskがProviderを無期限にDeadlockさせることと、Log欠落を隠して成功扱いすることの両方を防ぐ。
 
 ## 9. CLI experience
 
@@ -350,10 +372,17 @@ data: {"schema_version":"progress-v1","sequence":42,"type":"JobStarted",...}
 
 - `Last-Event-ID`またはQueryの`after_seq`からReplayする。
 - 接続維持用SSE CommentはRun Heartbeatと区別し、Semantic Sequenceを消費しない。
-- Retention範囲外、Sequence Gap、Schema不一致は`resync_required`を返し、ClientはSnapshotを再取得する。
+- Durable `events.jsonl`はRun存続中にPruneまたはRewriteしない。Server内のLive Fan-out Backlogだけを
+  256 Eventまたは1 MiBの小さい方へBoundし、その範囲外のReconnectはDurable LogからPage単位でReplayする。
+- Reconnect時は現在のDurable High-water Markを確定し、`Last-Event-ID + 1`からHigh-water MarkまでReplay後、
+  それより新しいLive Eventへ接続する。ReplayとLive登録の境界でEventを欠落させない。
+- Durable Sequence Gap、破損、Schema不一致は`resync_required`を返し、ClientはSnapshotを再取得する。
+  In-memory Backlog外であることだけを`resync_required`理由にしない。
 - ClientはSequenceでDeduplicateする。
 - SSE不能時はSnapshotとEvents APIのPollingへFallbackする。
 - Browser切断、Tab非表示、Slow ConsumerをRun Cancelへ結び付けない。
+- Client送信Queueが256 Eventまたは1 MiBを超えたSlow ConsumerはServerが接続を閉じる。Clientは
+  `Last-Event-ID`で再接続し、Durable Logから追いつく。切断をWorkflow Errorとして表示しない。
 
 ## 12. Backend normalization
 
@@ -445,6 +474,10 @@ Error Summaryは既知Error Codeから構築し、Raw stderrの先頭行を無�
 
 P0〜P2でCLIのみでも実行状況を把握できるようにし、P3〜P4は同じContractをBrowserへ接続する。Browser実装のために
 Core Workflowを作り直さない。
+
+`docs/implementation-plan-local-control-plane.md`のL5は、本設計のP0〜P4完了を前提とする。P0〜P2はCore/CLIの
+先行Milestoneとして実施し、L5内でP3〜P4をProgress Query APIとRun Detailへ接続する。L0〜L4はProgress UIを
+待たず進められるが、L5のAcceptanceはP0〜P4を満たすまで完了としない。
 
 ## 17. Review points
 

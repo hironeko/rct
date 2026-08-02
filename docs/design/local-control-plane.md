@@ -1,8 +1,8 @@
 # Local Browser Control Plane 詳細設計
 
-- 文書版: 0.4.0-draft
+- 文書版: 0.4.1-draft
 - 作成日: 2026-08-02
-- 対応要件: `docs/requirements.md` 0.11.0-draft FR-190〜FR-214、FR-230〜FR-270
+- 対応要件: `docs/requirements.md` 0.11.1-draft FR-190〜FR-214、FR-230〜FR-270
 - 対応ADR: `docs/architecture.md` ADR-010、ADR-011、ADR-012
 - 状態: 設計完了（実装未着手）
 
@@ -358,7 +358,8 @@ GET /api/v1/runs/{run-id}/stream
 
 Run APIはCLIの`status`と`watch`が使用するものと同じProgress Query Serviceへ接続する。SSEはSemantic Eventの
 Sequenceを`id`として返し、`Last-Event-ID`からReplayする。Connection KeepaliveはSemantic Sequenceを消費せず、
-Replay Gapでは`resync_required`を返す。SSE不能時はActivityとEventsのPollingへFallbackする。詳細Contractは
+Durable LogのReplay Gapでは`resync_required`を返す。SSE不能時はActivityとEventsのPollingへFallbackする。
+Bounded Live Backlog外はDurable Event LogからReplayし、Slow ConsumerはRunを停止せず接続だけを閉じる。詳細Contractは
 `docs/design/live-progress-and-run-observability.md`を正とする。
 
 ### 7.2 State-changing

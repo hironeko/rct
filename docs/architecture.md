@@ -1,8 +1,8 @@
 # rct アーキテクチャ設計書
 
-- 文書版: 0.10.0-draft
+- 文書版: 0.10.1-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.11.0-draft
+- 対応要件: `requirements.md` 0.11.1-draft
 - Draft拡張注記: Document Artifact移行方針、Approval Gate責務分離、Live Progress、rct名称移行を含む。
 - 実装言語: Go
 - 対象OS: macOS / Linux
@@ -734,6 +734,8 @@ loop-<short-run-id>-reviewer
 - stdoutとstderrをProcess終了までMemoryへ全量Bufferせず、生成順に権限制限されたJob LogへStreamする
 - Process RunnerはLog Sink、Output Observation Sink、Bounded Diagnostic Captureを分離する
 - Output ObservationはActivityの最終観測時刻を更新できるが、Job完了やArtifact確定を判定しない
+- OS Pipe ReaderとDisk Log Writerの間にByte上限付きQueueを置く。継続的なDisk遅延でQueueが飽和した場合、
+  Raw Outputを黙ってDropせずJobを`LOG_SINK_BACKPRESSURE`でCancelし、PipeをDrainして子Processを回収する
 
 Herdrとtmuxも、可能な範囲で同じLog SinkとLifecycle Sinkへ接続する。Backendが提供する画面Captureは
 補助診断とし、共通Semantic EventはrctがSubmit、Wait、Validateする制御点で発行する。
@@ -866,12 +868,16 @@ artifacts/requirements/
 `seq` はRun内で単調増加させる。
 
 Semantic Eventの採番、Event追記、対応するState更新は同じRun Writer Critical Section内で順序保証する。
+Sequenceは独立Counterから事前予約せず、Lock取得後にDisk上の最後の確定Recordを再読込し、そのEffective Sequence
+へ1を加える。採番と永続追記の間でCrashしても未使用番号によるGapを残さない。
 `JobHeartbeat`は高頻度の監査Eventとして無制限に追記せず、Atomicな`activity.json`更新とLive Stream用の
 Ephemeral Eventを基本とする。WatcherはWriter Lockを取得せず、確定済みSnapshotと改行まで書込済みの
 JSONL Recordだけを読む。
 
-Sequenceを持たない旧RunはRead-only互換層で確定済み行番号をLegacy Sequenceとして扱う。旧Logをその場で
-書き換えず、新規RunではSequenceの欠落、重複、逆行をContract Errorとする。
+Run作成時に`event_protocol_version`を固定する。Fieldなしの旧Runは`legacy-v0`としてRun終了まで扱い、
+Sequenceの有無が混在していても確定済み物理行番号をEffective Sequenceとし、既存Sequence FieldをAuthorityに
+しない。Upgrade後のWriterもそのRunへLegacy互換Recordを追記し、途中で`progress-v1`へ切り替えない。旧Logを
+その場で書き換えず、新規`progress-v1` RunではSequenceの欠落、重複、逆行をContract Errorとする。
 
 ### 11.5 Current Activity Projection
 
@@ -1249,7 +1255,9 @@ Last activity: 2026-08-02T15:41:00Z (live)
 Progressはstderr、最終Resultはstdoutへ分離し、`--json`のstdoutを壊さない。
 
 Browser Control Planeは同じQuery ServiceからSnapshotを取得し、SSEで`Last-Event-ID`以降をReplayする。
-SSE切断はRunのCancel理由にならず、Replay範囲外またはSequence GapではSnapshotを再取得する。
+Durable Event LogはRun存続中にPruneせず、Bounded In-memory SSE Backlog外はDurable LogからReplayする。
+Slow Consumerは接続を切断してよいがRunのCancel理由にせず、Clientは同じIDから再接続する。Durable Logの
+Sequence Gap、破損、Schema不一致ではSnapshotを再取得する。
 
 ### 18.3 Resume
 

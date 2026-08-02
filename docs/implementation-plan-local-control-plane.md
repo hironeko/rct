@@ -1,8 +1,8 @@
 # Local Browser Control Plane 実装計画
 
-- 文書版: 0.4.0-draft
+- 文書版: 0.4.1-draft
 - 作成日: 2026-08-02
-- 対応設計: `docs/design/local-control-plane.md` 0.4.0-draft、`docs/design/live-progress-and-run-observability.md` 0.1.0-draft
+- 対応設計: `docs/design/local-control-plane.md` 0.4.1-draft、`docs/design/live-progress-and-run-observability.md` 0.1.1-draft
 - 状態: 計画完了（実装未着手）
 
 ## 1. 実装原則
@@ -327,6 +327,9 @@ go test ./... -count=1
 UI Routeを無効化してもIntake Application ServiceはCLI/将来Adapterから利用可能にする。
 
 ### L5: Run Start, Progress, and Recovery
+
+L5着手前にLive Progress設計のP0〜P2をCore/CLI Milestoneとして完了する。L5はP3〜P4を実装し、P0〜P4の
+Acceptanceがすべて通過した時点で完了とする。
 
 #### 目的
 
