@@ -4,6 +4,12 @@ Loop Engine is a local orchestrator for AI-assisted software development. It tur
 
 Codex and Claude Code do not call each other recursively. A central workflow engine written in Go assigns roles, invokes each provider, validates artifacts, evaluates approval gates, and persists the state required to continue safely.
 
+## Concept preview
+
+The local browser control plane is currently a reviewed design target, not a released interface. The capture below shows the intended entry point for creating a request or a new application.
+
+![Loop Engine local control plane concept showing New request, New application, and recent runs](docs/assets/control-plane-concept.jpg)
+
 ## How it works
 
 Loop Engine separates the workflow into three independent roles:
