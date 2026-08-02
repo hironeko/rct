@@ -1,8 +1,8 @@
 # Local Browser Control Plane 実装計画
 
-- 文書版: 0.3.0-draft
+- 文書版: 0.3.1-draft
 - 作成日: 2026-08-02
-- 対応設計: `docs/design/local-control-plane.md` 0.3.0-draft
+- 対応設計: `docs/design/local-control-plane.md` 0.3.1-draft
 - 状態: 計画完了（実装未着手）
 
 ## 1. 実装原則

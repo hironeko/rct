@@ -1,6 +1,6 @@
 # rct 要件定義書
 
-- 文書版: 0.9.2-draft
+- 文書版: 0.10.0-draft
 - ステータス: Draft（rct Core Loop実装済み、拡張機能は設計段階）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
@@ -131,7 +131,7 @@ Gate Evaluatorを別の入力面から利用する。
 - Codex CLIとClaude Codeがインストール済みである
 - Codex CLIとClaude Codeの認証は各CLI側で完了している
 - rctはAPIキーやログイン資格情報を保存しない
-- 実装工程を行うプロジェクトはGitリポジトリである
+- 実装工程を行うプロジェクトは、実装前Preflight完了時点で有効なHEADを持つGitリポジトリである
 - 要件定義・設計のみの実行ではGitを必須としない
 - Herdrとtmuxは任意依存である
 - Goランタイムは利用者環境に不要とし、ビルド済み単一バイナリを配布する
@@ -1119,8 +1119,10 @@ GitHubで読めるMarkdown Requestを生成すること。Default PathはProject
 
 `New application`は許可Root内の親Directoryと検証済みProject slugから新しいDirectoryを
 作成し、その直下へ`request.md`を保存すること。既存の非空Directory、File、Symbolic Link
-と競合する場合は作成も上書きもせず、利用者へ競合を表示すること。初期版ではSource
-Scaffold、Dependency install、`git init`をRequest保存と同時に暗黙実行しないこと。
+と競合する場合は作成も上書きもせず、利用者へ競合を表示すること。Source Scaffoldと
+Dependency installはRequest保存と同時に実行しないこと。Git初期化は、確認画面で独立した
+選択項目として明示し、利用者の選択をIntakeへ記録した場合だけFR-230以降のGit Bootstrapを
+実行してよい。
 
 #### FR-196
 
@@ -1136,6 +1138,7 @@ Scaffold、Dependency install、`git init`をRequest保存と同時に暗黙実�
 - Backend
 - Max review rounds
 - 任意のOutput Directory
+- Initialize Git repository（New applicationではDefault ONだが確認画面へ明示する）
 - Action: Save draft / Save and start
 
 Titleと本文を必須とし、入力サイズ、文字Encoding、Project slug、数値範囲をServer側でも
@@ -1301,6 +1304,120 @@ Providerへ渡すStructured Output Schemaは、rct内のJSON Schema Validatorだ
 `anyOf`を使用しないこと。Review verdictと`required_changes`、`open_questions`の意味的整合性は、
 Provider出力後にrctのDomain Validatorが必ず検証し、不整合なReviewをGateへ渡してはならない。
 
+### 9.21 Git Bootstrap / Implementation Preflight / Recovery
+
+#### FR-230
+
+実装を伴うRunは、Human Implementation Approvalを受け付ける前にImplementation Preflightを実行し、
+Git実行ファイル、Repository Root、有効な`HEAD`、Clean Worktree、Project Lock、承認対象Plan Hashを
+検証すること。Preflight成功時のHEAD CommitをImplementation BaselineとしてRunへ保存すること。
+
+#### FR-231
+
+Git状態を少なくとも次へ分類すること。
+
+- `existing_repository`: Projectが有効なHEADを持つ既存Repository内にある
+- `rct_created_uninitialized`: rctが作成した新規Application Directoryで、Git未初期化である
+- `unmanaged_uninitialized`: rct所有と証明できない既存Directoryで、Git未初期化である
+- `unborn_repository`: `.git`は存在するがHEAD Commitがない
+- `unsafe_repository_boundary`: Symbolic Link、Root逸脱、不正なGit metadata、または許可されないNested Repositoryである
+
+親DirectoryのRepository内にあるProjectを、Git未初期化と誤判定してNested Repositoryを作成してはならない。
+
+#### FR-232
+
+CLIは`rct init --project <path>`を提供し、`rct start`から同じGit Bootstrap Application Serviceを
+明示的に呼べるOptionを提供すること。非対話実行でGit変更を行う場合は明示Optionを必須とし、
+入力待ちへ移行してはならない。`rct init`は既存Repositoryに対して冪等であること。
+
+#### FR-233
+
+rctが作成した新規Application Directoryでは、利用者がGit初期化を選択した場合に限り、次を一つの
+Bootstrap処理として実行できること。
+
+1. Git利用可否とAuthor identityを変更前に検査する
+2. Repositoryを初期化する
+3. Rootの`.gitignore`へ`/.rct/`を重複なく追加する
+4. rctが作成した`request.md`と`.gitignore`だけをStageする
+5. 初回Commitを作成し、そのCommit SHAを記録する
+
+Source Scaffold、Dependency install、Remote追加、Pushはこの処理へ含めないこと。
+
+#### FR-234
+
+rct所有と証明できない非空Directoryでは、`git init`、Stage、Commitを暗黙に行わないこと。
+既存Fileを初回Baselineへ採用する場合は`--adopt-existing`相当の明示Option、対象File一覧とDigestの
+事前表示、対話確認を必要とすること。非対話実行では追加の明示確認Optionを要求すること。
+
+#### FR-235
+
+BootstrapのStage対象はNUL区切り等の安全なPath処理で明示し、Shell文字列、Glob、`git add .`へ
+依存しないこと。`.git/`、`.rct/`、許可Root外Path、追跡先を辿ったSymbolic LinkをStageしてはならない。
+Symbolic Linkを採用する場合はLink自体のPathとTarget文字列だけを記録し、Target内容を読まないこと。
+
+#### FR-236
+
+初回CommitではProject内またはGlobalのGit Hookを実行せず、自動署名を要求しないこと。利用者の
+Remote、Credential、Branch、Global Git Configを変更してはならない。Git Author identityが未設定の
+場合は推測値を保存せず、設定方法を示して安全に停止すること。
+
+#### FR-237
+
+Bootstrap完了時に、Repository Root、Project相対Path、Bootstrap Mode、Initial Commit SHA、
+対象FileとDigest、`.gitignore`変更前後Hash、実行時刻を含む`git-bootstrap.json`をRunまたはIntakeへ
+保存すること。秘密情報、Git credential、Environment値をReceiptへ保存してはならない。
+
+#### FR-238
+
+Git未初期化、Unborn HEAD、Dirty Worktree、Author identity不足など利用者が修正可能なPreflight失敗を
+`FAILED`へ遷移させてはならない。`WAITING_FOR_HUMAN`へ遷移し、Machine-readableなReason Code、
+再開先State、修正手順、検査時Revisionを保存すること。内部State破損、Artifact改ざん、Policy境界違反は
+回復可能な環境不足と区別すること。
+
+#### FR-239
+
+Git Bootstrapまたは環境修正後、利用者は`rct resume --project <path> [--run <id>]`で同じRunを明示的に
+再開できること。ResumeはRecovery Planを表示し、Project Lock取得、Reason Code再検査、Plan Hash、
+Artifact Hash、State Revision、Git Bootstrap Receipt、現在HEADとWorktreeを検証してからだけ、保存済みの
+Resume Targetへ遷移すること。Agentによる要件・設計・Plan生成を再実行してはならない。
+
+#### FR-240
+
+Implementation BaselineはHuman Approval RecordへPlan SHA-256と共にBindingすること。Approval後にHEAD、
+Plan Hash、またはBaseline対象Fileが変化した場合、そのApprovalで実装を開始してはならない。Git Bootstrapが
+Approval後に必要となったLegacy Runでは、既存ApprovalをSupersededとして保持し、同じRunを
+`AWAITING_IMPLEMENTATION_APPROVAL`へ戻して新しいBaselineへの再承認を要求すること。
+
+#### FR-241
+
+`rct implement`はMilestone Stateへ遷移する前にPreflightを再検査すること。回復可能な失敗では承認済み
+ArtifactとReviewを保持して`WAITING_FOR_HUMAN`へ停止し、再開後に同じRun・同じMilestoneから開始すること。
+Dirty Worktreeを自動Commit、Reset、Clean、Stash、Checkoutしてはならない。
+
+#### FR-242
+
+Git Bootstrap、Resume、Implement PreflightはProject単位Writer LockとExpected State Revisionを共有し、
+同じProjectに対する二つのBootstrapまたはImplementation開始を同時成功させてはならない。Lock競合は
+`ConcurrentRunError`として扱い、別Runの`.git`、Index、Stateを変更してはならない。
+
+#### FR-243
+
+Bootstrapは変更前検査をすべて先行し、途中失敗時の所有範囲を記録すること。rctがこの処理で新規作成した
+Git metadataまたはStage状態だけを回復対象にできるが、既存`.git`、既存Commit、利用者所有Fileを削除・
+Resetしてはならない。自動Rollbackが安全に証明できない場合は部分完了Receiptと手動復旧手順を残すこと。
+
+#### FR-244
+
+Local Browser Control PlaneのNew applicationは`Initialize Git repository`をDefault ONで表示し、確認画面に
+初回Commit対象、`.rct/`除外、Remote/Pushを行わないことを示すこと。選択結果をIntakeへ保存し、HTTP Handlerが
+Git Commandを直接起動せず、CLIと同じGit Bootstrap Application Serviceを呼ぶこと。
+
+#### FR-245
+
+旧VersionがGit Repository不足を理由に`FAILED`へ遷移させたRunは、Failure文字列だけを一般的なResume権限へ
+使用せず、既知の旧Event列、Approval、Plan Hash、未開始Milestoneを検証した限定Migrationで回復できること。
+回復時は旧Failureを監査履歴に残し、Baseline確立後にHuman Approvalを再要求すること。
+
 ## 10. 非機能要件
 
 ### NFR-001: ポータビリティ
@@ -1463,11 +1580,16 @@ REQUIREMENTS_DRAFT
 REQUIREMENTS_REVIEW
 REQUIREMENTS_REVISION
 REQUIREMENTS_APPROVED
+ARCHITECTURE_DRAFT
+ARCHITECTURE_REVIEW
+ARCHITECTURE_APPROVED
 PLAN_DRAFT
 PLAN_REVIEW
 PLAN_REVISION
 PLAN_APPROVED
+IMPLEMENTATION_PREFLIGHT
 AWAITING_IMPLEMENTATION_APPROVAL
+IMPLEMENTATION_READY
 MILESTONE_IMPLEMENTATION
 MILESTONE_VERIFICATION
 MILESTONE_REVIEW
@@ -1828,6 +1950,59 @@ Release Buildはdarwin/arm64、darwin/amd64、linux/arm64、linux/amd64のBinary
 全埋め込みStructured Output Schemaに対する静的互換性Testが、Top Levelの`oneOf`、`allOf`、`anyOf`を
 検出して失敗する。Review Schemaから条件分岐を除いても、`approved`に必須修正または未解決事項を含む
 Review、必須修正のない`changes_requested`、未解決事項のない`blocked`はDomain Validationで拒否される。
+
+### AC-062
+
+rctが新規作成したApplication DirectoryでGit初期化を選択すると、`request.md`と`/.rct/`を含む
+`.gitignore`だけを追跡した初回Commitが作成され、有効なHEAD、Clean Worktree、Bootstrap Receiptを得る。
+Remote追加、Push、Source Scaffold、Dependency installは実行されない。
+
+### AC-063
+
+Git未初期化Projectの承認済みPlanにImplementation Preflightを実行してもRunは`FAILED`にならず、
+`GIT_BOOTSTRAP_REQUIRED`とResume Targetを持つ`WAITING_FOR_HUMAN`になる。Agent JobとHuman Approvalは
+Preflight解消前に開始されない。
+
+### AC-064
+
+AC-063のProjectで`rct init`と`rct resume`を実行すると、Run ID、承認済みRequirements、Architecture、
+PlanとReview Hashを維持したまま`AWAITING_IMPLEMENTATION_APPROVAL`へ進み、AIによる再生成を行わない。
+
+### AC-065
+
+rct所有でない非空Directoryに対して明示的なAdopt OptionなしでGit Bootstrapを要求すると、対象File一覧を
+変更せず拒否する。`.git`、Index、Commit、`.gitignore`を作成または変更しない。
+
+### AC-066
+
+既存DirectoryをAdoptする場合、対話確認または同等の非対話向け二重明示がなければ実行されない。承認後は
+表示済みInventoryと同一のFileだけが初回Commitへ含まれ、Inventoryが確認後に変化した場合は失敗する。
+
+### AC-067
+
+Projectが親Repository内に存在する場合、rctは新しいNested `.git`を作成せず既存Repository RootとHEADを
+Baseline候補として表示する。Repository境界がPolicyに適合しない場合は変更せず停止する。
+
+### AC-068
+
+Git Author identity不足、Commit失敗、Project Lock競合のいずれでも既存利用者Fileと既存Repositoryを
+削除・Resetせず、Machine-readableなReasonと安全な再実行手順を返す。
+
+### AC-069
+
+Human ApprovalにBindingされたPlan HashまたはBaseline Commitが変更された状態で`rct implement`を実行すると、
+Implementerを起動せずApprovalをstaleとして停止する。同じHashとBaselineを再承認するまで実装へ進まない。
+
+### AC-070
+
+同一Projectに対する二つのGit BootstrapまたはBootstrapとImplementation開始を並行実行すると、一つだけが
+Project LockとExpected Revisionを取得し、他方は`ConcurrentRunError`でGitとRun Stateを変更せず終了する。
+
+### AC-071
+
+旧VersionでGit未初期化Errorにより`FAILED`となった、Implementation未開始かつ承認済みPlanを持つRunを
+明示Resumeすると、限定Migration、Git Bootstrap、Baseline検証、Human Approval再確認を経て同じRun IDで
+実装可能になる。Requirements、Architecture、PlanのAgent Jobは再実行されない。
 
 ## 16. 初期リスク
 

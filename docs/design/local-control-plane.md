@@ -1,9 +1,9 @@
 # Local Browser Control Plane 詳細設計
 
-- 文書版: 0.3.0-draft
+- 文書版: 0.3.1-draft
 - 作成日: 2026-08-02
-- 対応要件: `docs/requirements.md` 0.9.2-draft FR-190〜FR-214
-- 対応ADR: `docs/architecture.md` ADR-010
+- 対応要件: `docs/requirements.md` 0.10.0-draft FR-190〜FR-214、FR-230〜FR-245
+- 対応ADR: `docs/architecture.md` ADR-010、ADR-011
 - 状態: 設計完了（実装未着手）
 
 ## 1. 目的
@@ -27,7 +27,7 @@ Inbound Adapterであり、正式状態は既存のState Store、Artifact Store�
 - Cloud StorageまたはRemote Database
 - Browser内でのSource Code編集
 - 任意File Viewerまたは任意Shell Console
-- Source Scaffold、Dependency install、`git init`の暗黙実行
+- Source Scaffold、Dependency install、利用者が選択していないGit Bootstrap
 - Browserを閉じたときのRun自動Cancel
 - CLIと異なるWorkflowまたはApproval規則
 - React、Node.js、npmを配布BinaryのRuntime依存にすること
@@ -76,8 +76,10 @@ Global Navigationを増やさず、Recent runsは補助領域にする。初回�
 3. Project nameとslugを入力
 4. Application briefを入力
 5. ProviderとRun Optionを選択
-6. 作成予定Pathを確認
-7. `Save draft`または`Save and start`
+6. Default ONの`Initialize Git repository`を選択または解除
+7. 初回Commit対象、`/.rct/`除外、Remote/Pushなしを確認
+8. 作成予定Pathを確認
+9. `Save draft`または`Save and start`
 
 保存先Default:
 
@@ -99,6 +101,7 @@ State変更前に、次を一画面で確認できること。
 - Designer / Implementer / Reviewer割当
 - Mode / Backend
 - `Save draft`か`Save and start`か
+- Git Bootstrap選択、初回Commit対象、Remote/Pushを行わないこと
 
 絶対Pathは必要な確認画面だけに表示し、API Errorや通常Logへ無条件に含めない。
 
@@ -189,6 +192,13 @@ const (
     KindApplication Kind = "application"
 )
 
+type GitBootstrapSelection string
+
+const (
+    GitBootstrapDisabled   GitBootstrapSelection = "disabled"
+    GitBootstrapInitialize GitBootstrapSelection = "initialize"
+)
+
 type CreateInput struct {
     Kind            Kind
     WorkspaceRootID string
@@ -198,6 +208,7 @@ type CreateInput struct {
     Body            string
     Goals           []string
     Constraints     []string
+    GitBootstrap    GitBootstrapSelection
     RunOptions      RunOptions
     Action          Action
     IdempotencyKey  string
@@ -290,6 +301,8 @@ project/
 ```text
 workspace/
 └── application-slug/
+    ├── .git/
+    ├── .gitignore
     ├── request.md
     └── .rct/
         ├── intakes/
@@ -298,6 +311,11 @@ workspace/
 
 Intake Metadata内のPathは、Workspace Root IDと相対Pathを正本とする。診断用にAbsolute Pathを
 保持する場合はBrowser APIへ公開しない内部Fieldへ分離する。
+
+Git初期化を選択した場合、HTTP HandlerはGit Commandを直接実行せず、保存済みIntakeの選択と
+Expected Revisionを`GitBootstrapService`へ渡す。Bootstrapが成功した場合だけRunを開始し、失敗時は
+Intakeを`START_FAILED`としてBootstrap Receiptまたは安全なRemediationを表示する。詳細契約は
+`docs/design/git-bootstrap-and-preflight-recovery.md`を正本とする。
 
 ## 6. Markdown materialization
 

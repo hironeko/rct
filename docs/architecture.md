@@ -1,8 +1,8 @@
 # rct アーキテクチャ設計書
 
-- 文書版: 0.8.2-draft
+- 文書版: 0.9.0-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.9.2-draft
+- 対応要件: `requirements.md` 0.10.0-draft
 - Draft拡張注記: Document Artifact移行方針、Approval Gate責務分離、rct名称移行を含む。
 - 実装言語: Go
 - 対象OS: macOS / Linux
@@ -352,10 +352,14 @@ stateDiagram-v2
     PLAN_REVIEW --> WAITING_FOR_HUMAN: blocked / retry limit
     PLAN_REVISION --> PLAN_REVIEW
 
-    PLAN_APPROVED --> AWAITING_IMPLEMENTATION_APPROVAL: supervised
-    PLAN_APPROVED --> MILESTONE_IMPLEMENTATION: autonomous
-    AWAITING_IMPLEMENTATION_APPROVAL --> MILESTONE_IMPLEMENTATION: human approved
+    PLAN_APPROVED --> IMPLEMENTATION_PREFLIGHT
+    IMPLEMENTATION_PREFLIGHT --> AWAITING_IMPLEMENTATION_APPROVAL: supervised / ready
+    IMPLEMENTATION_PREFLIGHT --> IMPLEMENTATION_READY: autonomous / ready
+    IMPLEMENTATION_PREFLIGHT --> WAITING_FOR_HUMAN: git bootstrap / environment
+    AWAITING_IMPLEMENTATION_APPROVAL --> IMPLEMENTATION_READY: human approved
     AWAITING_IMPLEMENTATION_APPROVAL --> CANCELLED: human rejected
+    IMPLEMENTATION_READY --> MILESTONE_IMPLEMENTATION: preflight revalidated
+    IMPLEMENTATION_READY --> WAITING_FOR_HUMAN: environment drift
 
     MILESTONE_IMPLEMENTATION --> MILESTONE_VERIFICATION
     MILESTONE_VERIFICATION --> MILESTONE_REVIEW: success
@@ -375,6 +379,8 @@ stateDiagram-v2
 
     WAITING_FOR_HUMAN --> REQUIREMENTS_REVISION: requirements decision
     WAITING_FOR_HUMAN --> PLAN_REVISION: plan decision
+    WAITING_FOR_HUMAN --> IMPLEMENTATION_PREFLIGHT: git/environment resume
+    WAITING_FOR_HUMAN --> IMPLEMENTATION_READY: post-approval preflight resume
     WAITING_FOR_HUMAN --> MILESTONE_FIX: implementation decision
     WAITING_FOR_HUMAN --> CANCELLED: cancel
     COMPLETED --> [*]
@@ -388,6 +394,8 @@ stateDiagram-v2
 - `REQUIREMENTS_APPROVED` 以降では承認済みRequirements Artifactが存在する
 - `ARCHITECTURE_APPROVED` 以降では承認済みArchitecture Artifactが存在する
 - `PLAN_APPROVED` 以降では承認済みImplementation Planが存在する
+- `AWAITING_IMPLEMENTATION_APPROVAL` 以降では有効なGit Baseline Receiptが存在する
+- `IMPLEMENTATION_READY`ではHuman ApprovalがPlan HashとBaseline Commitの両方へBindingされている
 - `MILESTONE_REVIEW` へ入る前にVerificationが成功している
 - `MILESTONE_APPROVED` では未解決のRequired Changeがない
 - ReviewのSubject Hashは現在のCandidate Artifact Hashと一致する
@@ -909,10 +917,14 @@ Project Profile由来の根拠と利用者の明示承認を永続化する拡�
 - 変更ファイル一覧取得
 - Review用Diff生成
 - Agent Job後の予期しないReviewer変更検査
+- Repository分類とImplementation Preflight
+- 明示的なGit Bootstrap Planの作成
+- 初回Baseline CommitとBootstrap Receiptの作成
+- ApprovalにBindingするBaseline Commit検証
 
-行わないこと:
+通常のWorkflow Job中に行わないこと:
 
-- 自動commit
+- Bootstrap契約外の自動commit
 - reset
 - clean
 - checkoutによる変更破棄
@@ -920,7 +932,52 @@ Project Profile由来の根拠と利用者の明示承認を永続化する拡�
 - merge
 - branch削除
 
-これらは将来、別の明示的なPublish機能として追加する。
+初回CommitはGit Bootstrap Application Serviceだけが、利用者の明示Authorization、Project Lock、
+確定済みInventoryを受けて実行できる。Agent JobとGit Adapter単体はCommitを開始できない。
+BootstrapではRemote追加、Push、Merge、Branch削除を行わず、HookとCommit署名を無効化する。
+
+### 14.1 Git Bootstrap境界
+
+```text
+CLI / Browser Intake
+  -> GitBootstrapService.Plan
+       -> classify repository boundary
+       -> inventory candidate baseline
+       -> verify git + identity + paths + project lock
+  -> explicit authorization
+  -> GitBootstrapService.Apply
+       -> revalidate inventory digest and state revision
+       -> init repository when required
+       -> merge /.rct/ into .gitignore
+       -> stage exact authorized paths
+       -> create initial commit without hooks/signing
+       -> write git-bootstrap.json
+  -> ImplementationPreflight
+```
+
+`Plan`はRead-onlyであり、`Apply`はPlan ID、Inventory Digest、Expected Revisionが一致する場合だけ
+実行する。rct所有の新規Directory以外を採用する場合は、UI確認またはCLIのAdopt Authorizationを
+追加で必要とする。
+
+### 14.2 Preflight interruptionとResume
+
+Git不足やDirty WorktreeはAgent Failureではなく、回復可能な`PreflightInterruption`とする。
+
+```json
+{
+  "code": "GIT_BOOTSTRAP_REQUIRED",
+  "phase": "implementation_preflight",
+  "resume_state": "IMPLEMENTATION_PREFLIGHT",
+  "detected_revision": 14,
+  "plan_sha256": "...",
+  "remediation": "rct init --project <path>"
+}
+```
+
+Interruptionは`WAITING_FOR_HUMAN`へのEventと専用JSON Artifactへ保存する。`rct resume`はReasonごとの
+Recovery Handlerを選び、Hash、Revision、Lock、Baselineを再検査する。単なるFailure文字列一致で
+任意の`FAILED` Runを復活させない。旧Git不足Runだけは、既知Event列とImplementation未開始を検証する
+Migration Handlerを通し、Baseline確立後に旧ApprovalをSupersededとして再承認を要求する。
 
 ## 15. Permission設計
 
@@ -1162,6 +1219,9 @@ RetryLimitReached
 ConcurrentRunError
 RecoveryError
 PolicyDenied
+GitBootstrapRequired
+GitIdentityRequired
+GitBaselineStale
 ```
 
 ### 19.2 Retry Policy
@@ -1470,6 +1530,22 @@ Spike結果によりProvider AdapterとRuntime Backendの詳細だけを調整�
   行える操作面を追加するため
 - 影響: HTTP Adapter、Workspace Browser、Intake Store、Run Manager、Security Policyの
   Contract Testが必要になる。詳細は`docs/design/local-control-plane.md`へ記録する
+
+### ADR-011: Git Bootstrapを明示的なApplication Serviceとして提供する
+
+- 決定: 実装対象には有効なGit Baselineを必須とし、rctが作成した新規Applicationまたは利用者が
+  明示的にAdoptしたDirectoryに限って、Git初期化、`/.rct/`除外、初回Commitをrctが実行できる
+- Approval境界: BootstrapとImplementation PreflightをHuman Implementation Approvalより前に完了し、
+  ApprovalをPlan HashとBaseline CommitへBindingする
+- Recovery: Git不足、Unborn HEAD、Dirty Worktreeなど利用者が修正可能な条件は`FAILED`ではなく
+  `WAITING_FOR_HUMAN`へ停止し、構造化ReasonとRecovery Planから同じRunを明示Resumeする
+- 既存Directory: rct所有でないFileを暗黙にCommitせず、Inventory表示、Digest固定、Adopt Authorizationを
+  必須とする。Nested Repository、Remote追加、Push、Hook実行、署名、Reset、Cleanは行わない
+- 理由: Git差分を実装Reviewの正本にする以上、利用者へ手作業だけを要求せず、初期Baseline作成と
+  回復経路をrctの安全境界内で一貫して提供する必要があるため
+- 影響: GitBootstrapService、ImplementationPreflight、Bootstrap Receipt、Project Lock、`rct init`、
+  `rct resume`、Browser IntakeのGit選択、Legacy Failed Run Migrationが必要になる。詳細は
+  `docs/design/git-bootstrap-and-preflight-recovery.md`へ記録する
 
 ## 26. 将来拡張
 
