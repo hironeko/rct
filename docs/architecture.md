@@ -1,8 +1,8 @@
 # Loop Engine アーキテクチャ設計書
 
-- 文書版: 0.4.1-draft
+- 文書版: 0.5.0-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.5.1-draft
+- 対応要件: `requirements.md` 0.6.0-draft
 - Draft拡張注記: Document Artifact移行方針とApproval Gate責務分離を含む。
   独立Review承認後にDraft表記を更新する
 - 実装言語: Go
@@ -1382,6 +1382,24 @@ Spike結果によりProvider AdapterとRuntime Backendの詳細だけを調整�
   FlatなMarkdownはManifestでHash管理されたPublication Copyとする。Publish前に
   現在Hashを照合し、利用者編集を無警告で上書きしない
 
+### ADR-010: Local Browser Control PlaneをInbound Adapterとして追加する
+
+- 決定: `loop-engine serve`がLoopback HTTP Serverと埋込UIを提供し、CLIと同じ
+  Application Serviceを呼び出す。Web HandlerからCLI Binaryを再実行せず、Browser専用の
+  Workflow State Machineを作らない
+- File System境界: 起動時に明示したWorkspace RootをCapabilityとして扱い、Browserは
+  Root IDと相対Pathだけを送る。Path解決とno-follow検査はServer側で行う
+- 永続化: Browser入力は先にVersioned IntakeとしてMarkdownとMetadataへ原子的に保存し、
+  `Save and start`ではその確定済みIntake HashからRunを一つだけ作る
+- Security: Default Bindを`127.0.0.1:0`とし、Session Token、Origin、Host、CSRF、CSP、
+  Body Limit、Idempotency Keyを必須とする。CORSと外部Resource読込を許可しない
+- 配布: HTML/CSS/JavaScriptはGo Binaryへ埋め込み、Node.jsや外部Web ServerをRuntime依存に
+  しない
+- 理由: CLIの安全境界とArtifact Protocolを維持したまま、非CLI利用者が要望投入とRun確認を
+  行える操作面を追加するため
+- 影響: HTTP Adapter、Workspace Browser、Intake Store、Run Manager、Security Policyの
+  Contract Testが必要になる。詳細は`docs/design/local-control-plane.md`へ記録する
+
 ## 26. 将来拡張
 
 Coreを変更せず、次をAdapterとして追加可能にする。
@@ -1392,7 +1410,7 @@ Coreを変更せず、次をAdapterとして追加可能にする。
 - SSH Backend
 - Container Backend
 - GitHub Actions Backend
-- Web Dashboard
+- Remote / multi-user Web Dashboard
 - Slack / Teams通知
 - Pull Request発行
 - Cost / Token Budget

@@ -172,4 +172,4 @@ The MVP is limited to:
 - file-based Artifacts, State, and Event Log
 - interruption and resume
 
-Additional providers, Web UI, Pull Request integration, and deployment are outside the MVP.
+Additional providers, Pull Request integration, deployment, and remote or multi-user Web UI are outside the MVP. The loopback-only Local Browser Control Plane described by FR-190 through FR-208 is a v1 extension and must remain an inbound adapter to the same Application Service used by the CLI.

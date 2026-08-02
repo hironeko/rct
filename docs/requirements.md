@@ -1,7 +1,7 @@
 # Loop Engine 要件定義書
 
-- 文書版: 0.5.1-draft
-- ステータス: Draft（Approval Gate Foundation承認済み、RC-029/RC-030対応済み）
+- 文書版: 0.6.0-draft
+- ステータス: Draft（Local Browser Control Plane追加、独立レビュー待ち）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
 - 実装言語: Go
@@ -69,13 +69,20 @@ Loop Engineや端末が終了しても、永続化された成果物と状態か
 保存すること。ローカル閲覧時は、同じMarkdownから視覚的認知コストを下げた静的
 HTML/CSSを生成できること。
 
+### G-008: ブラウザから安全に要望を投入する
+
+利用者がローカルブラウザから既存プロジェクトへの新規要望または新規アプリケーション
+作成依頼を入力し、許可したWorkspace Root内へMarkdownとして保存したうえで、CLIと
+同一のLoop Engine CoreへRunを依頼できること。
+
 ## 4. 非ゴール
 
 MVPでは次を対象外とする。
 
 - クラウド上での分散実行
 - 複数人による同時操作
-- 状態変更やAgent操作を行うWeb UI（Markdownの読取専用ローカルPreviewは含まない）
+- Remote公開、複数利用者、認証基盤を伴うHosted Web UI。単一利用者向けのLoopback
+  Local Browser Control Planeはv1拡張として対象に含める
 - Kubernetesやコンテナオーケストレーターとの統合
 - 生成AIサービスのAPIキー管理
 - 独自LLM推論基盤の提供
@@ -111,6 +118,10 @@ MVPに含める機能を次に限定する。
 - macOS arm64とLinux amd64のリリース
 
 macOS amd64、Linux arm64、追加Provider、通知、Pull Request連携は、Core設計上は考慮するがMVPのリリース条件には含めない。
+
+v1拡張では、Go単一バイナリに埋め込まれたLocal Browser Control Planeを追加する。
+この拡張はCLIを置き換えず、同じApplication Service、State Store、Artifact Store、
+Gate Evaluatorを別の入力面から利用する。
 
 ## 6. 前提条件
 
@@ -180,6 +191,25 @@ macOS amd64、Linux arm64、追加Provider、通知、Pull Request連携は、Co
 4. Loop EngineがMarkdownを静的HTML/CSSへ変換する
 5. 利用者が見出しナビゲーション、表、コード、レビュー状態をブラウザで確認する
 6. HTMLを削除しても、Markdownから同じ内容を再生成できる
+
+### UC-007: ブラウザから既存プロジェクトへ新規要望を追加する
+
+1. 利用者が許可するWorkspace Rootを指定してLocal Control Planeを起動する
+2. ブラウザで「New request」を選ぶ
+3. 許可されたRoot内から既存プロジェクトを選ぶ
+4. 要望、制約、Designer Provider、Modeを入力する
+5. Loop Engineが要望をMarkdownへ原子的に保存する
+6. 利用者が`Save and start`を選んだ場合、同じ入力から一つのRunを開始する
+7. 利用者がブラウザまたはCLIの`status`から同じRun IDと状態を確認する
+
+### UC-008: ブラウザから新規アプリケーション作成依頼を登録する
+
+1. 利用者がブラウザで「New application」を選ぶ
+2. 許可されたRoot内の親Directoryと新しいProject名を指定する
+3. 作成目的、対象利用者、主要機能、制約、希望する技術または未指定を入力する
+4. Loop Engineが新しいProject Directoryと`request.md`を作成する
+5. 既存Pathとの競合がなければ、保存したRequestを入力としてRunを開始できる
+6. DesignerとReviewerがCLI起動時と同じArtifact ProtocolでLoopを進める
 
 ## 8. 動作モード
 
@@ -1015,6 +1045,145 @@ Reviewerの否決または決定的Gate失敗を利用者が例外的に受容�
 `approve`とは別の操作、権限、理由記録を必要とする。安全な監査仕様が確定するまで
 MVPではOverrideを提供しないこと。
 
+### 9.19 Local Browser Control Plane
+
+#### FR-190
+
+Loop Engineは次の形式でLocal Browser Control Planeを起動できること。
+
+```text
+loop-engine serve [--workspace-root <absolute-path>]... [--listen 127.0.0.1:0]
+```
+
+`--workspace-root`を省略した場合は起動時のCurrent Working Directoryだけを許可Rootと
+すること。複数回指定を許可し、`/`、Home Directory全体など広すぎるRootを暗黙の
+Defaultにしてはならない。
+
+#### FR-191
+
+Control Planeはデフォルトで`127.0.0.1`の空きPortだけをListenし、起動時に推測困難な
+Session Tokenを生成すること。Loopback以外へのBindは、危険性を表示した明示設定と
+別途定義する認証なしには許可しないこと。MVP/v1初期版ではLoopback以外へのBindを
+実装しなくてよい。
+
+#### FR-192
+
+ブラウザの主要操作として、少なくとも`New request`と`New application`を最初の画面に
+表示すること。CLIを知らない利用者でも、保存先、要望、Designer、Mode、保存のみか
+保存後開始かを一つのFlowで選択できること。
+
+#### FR-193
+
+ブラウザから選択できるDirectoryは、起動時に許可されたWorkspace Rootの配下だけと
+すること。Server側でCanonical Path、Path traversal、Symbolic Link、Root containmentを
+検証し、Browserから送られた絶対Pathを無条件に信頼してはならない。
+
+Directory選択UIはServerが返したRoot IDと相対Pathを使用し、OS全体のFile Systemを
+列挙してはならない。
+
+#### FR-194
+
+`New request`は許可Root内の既存Project Directoryを対象とし、利用者入力から
+GitHubで読めるMarkdown Requestを生成すること。Default PathはProject配下の
+`requests/<UTC timestamp>-<slug>.md`とし、利用者が明示した許可Root内の別Pathも
+選択できること。
+
+#### FR-195
+
+`New application`は許可Root内の親Directoryと検証済みProject slugから新しいDirectoryを
+作成し、その直下へ`request.md`を保存すること。既存の非空Directory、File、Symbolic Link
+と競合する場合は作成も上書きもせず、利用者へ競合を表示すること。初期版ではSource
+Scaffold、Dependency install、`git init`をRequest保存と同時に暗黙実行しないこと。
+
+#### FR-196
+
+入力Formは少なくとも次を扱うこと。
+
+- Request kind: existing project / new application
+- Title
+- Rough requestまたはApplication brief
+- GoalsまたはDesired outcomes
+- Constraints
+- Designer Provider
+- Run Mode
+- Backend
+- Max review rounds
+- 任意のOutput Directory
+- Action: Save draft / Save and start
+
+Titleと本文を必須とし、入力サイズ、文字Encoding、Project slug、数値範囲をServer側でも
+検証すること。
+
+#### FR-197
+
+Request MarkdownとIntake Metadataは一時Fileへの書込、Flush、Atomic renameにより保存する
+こと。Intake ID、作成時刻、Request kind、Workspace Root ID、相対Path、Request SHA-256、
+選択したRun Optionを`.loop-engine/intakes/<intake-id>/intake.json`へ保存すること。
+
+#### FR-198
+
+`Save and start`は保存済みRequest PathとSHA-256をApplication Serviceへ渡し、CLIの
+`start --request-file`と同じValidation、Provider割当、Backend選択、State Store、
+Artifact Storeを利用すること。Web HandlerからCLI Binaryを子Processとして再実行したり、
+Web専用Workflowを複製したりしてはならない。
+
+#### FR-199
+
+一回の`Save and start` Requestから作成できるRunは一つだけとする。Idempotency Keyと
+Intake State RevisionでBrowserの二重送信、再読込、Network retryによる重複Runを防ぐこと。
+
+#### FR-200
+
+Control PlaneはRun ID、Project、現在State、Role Provider、Review round、停止理由、主要な
+Artifact Linkを表示できること。更新はPollingまたはServer-Sent Eventsで取得し、画面表示を
+正式なState Sourceとして扱わないこと。
+
+#### FR-201
+
+Browserを閉じても開始済みRunを暗黙にCancelしないこと。Control Plane再起動後はState Store
+からRunを再表示し、CLIの`status`と同じ状態を示すこと。Stop、Resume、Approveなどの状態変更
+操作は、各CLI CommandのDomain/Application Serviceが実装された後に同じ契約へ接続すること。
+
+#### FR-202
+
+すべての状態変更HTTP EndpointはPOSTまたはそれ以上に限定されたMethodを使用し、Session
+Token、Origin、Host、Content-Type、Body Size、CSRF Tokenを検証すること。GET/HEAD Endpointは
+読取専用とし、CORSを有効化しないこと。
+
+#### FR-203
+
+Control PlaneはCSPを設定し、Inline Script、外部Script、外部Font、外部Image、外部Network
+RequestをDefaultで許可しないこと。UI AssetはGo Binaryへ埋め込み、利用時にNode.js、npm、
+Python、外部CDNを要求しないこと。
+
+#### FR-204
+
+Control Planeは任意Shell Command、任意Executable、任意File Content読取APIを提供しないこと。
+Browser入力をCommand引数へ直接連結せず、既存の型付きOptionと承認済みCommand Profileだけを
+使用すること。
+
+#### FR-205
+
+Workspace Root、Project Directory、Request File、Output Directoryの各書込処理は、検査時と
+使用時の差し替えを考慮したno-follow処理を行うこと。Root外参照、Symbolic Link、Ownership
+Conflict、既存利用者FileのHash不一致ではFail Closedとすること。
+
+#### FR-206
+
+Web APIは`/api/v1`でVersion管理し、成功時と失敗時にMachine-readableなJSON Envelopeを返す
+こと。内部Error、絶対Path、Prompt、stdout/stderr、秘密情報をBrowserへ無条件に返さないこと。
+
+#### FR-207
+
+初期UIはKeyboard操作、Label、Focus表示、Error Summary、200% Zoom、狭い画面に対応すること。
+色だけをRun State、Error、Review verdictの唯一の識別手段にしないこと。
+
+#### FR-208
+
+Control PlaneはCLIの代替ではなく追加Adapterとすること。Headless利用、dotfiles、Automation、
+CIでは引き続きCLIから同じApplication Serviceを利用でき、Browserを起動しなくても全Workflowを
+実行できること。
+
 ## 10. 非機能要件
 
 ### NFR-001: ポータビリティ
@@ -1391,6 +1560,56 @@ Human Approval後に対象PlanのHashが変わった場合、以前のApproval�
 通常の`loop-engine approve`では状態を進められず、理由に応じた修正、回答、再検証、
 再レビューのいずれかを要求する。
 
+### AC-034
+
+`loop-engine serve --workspace-root /work`を起動すると`127.0.0.1`の空きPortだけで待受け、
+許可Root外のPath、`..` traversal、Symbolic Link経由のDirectory一覧またはFile作成を拒否する。
+
+### AC-035
+
+ブラウザの`New request`から既存Project、Title、要望、Designer、Modeを入力して`Save draft`を
+選ぶと、許可Root内へMarkdownとIntake Metadataが原子的に保存され、Agent Jobは開始されない。
+
+### AC-036
+
+同じFormで`Save and start`を選ぶと一つのIntakeと一つのRunだけが作成され、Browserと
+`loop-engine status`が同じRun ID、State、Artifact Pathを表示する。
+
+### AC-037
+
+`New application`で未使用のProject slugを指定すると新しいDirectoryと`request.md`だけを作成し、
+既存の非空Directory、File、Symbolic Linkと競合する場合は既存内容を変更しない。
+
+### AC-038
+
+同じIdempotency Keyを持つ`Save and start`を二回送信してもRunが重複せず、最初に確定した
+Intake IDとRun IDを返す。
+
+### AC-039
+
+不正なHost、Origin、CSRF Token、Session Token、Content-Type、過大Body、状態変更GET Requestを
+受け取った場合、Request保存、Run作成、State変更を行わず拒否する。
+
+### AC-040
+
+Control PlaneのHTML/CSS/JavaScriptをNetwork接続なしで表示でき、BrowserのDeveloper Tools上で
+外部Script、Font、Image、APIへのRequestが発生しない。
+
+### AC-041
+
+Browserを閉じて再度開いても開始済みRunは継続し、Control Plane Processを再起動した場合は
+State Storeから同じRunを表示できる。
+
+### AC-042
+
+Web HandlerのContract TestではFake Application Serviceを使用でき、実Codex、Claude Code、
+Herdr、tmuxを起動せずNew request/New application/Run開始/Error処理を検証できる。
+
+### AC-043
+
+配布Binaryから`serve`を起動でき、利用環境へNode.js、npm、Python、Browser Extension、外部Web
+Serverを追加Installする必要がない。
+
 ## 16. 初期リスク
 
 | リスク | 影響 | 対応 |
@@ -1405,6 +1624,9 @@ Human Approval後に対象PlanのHashが変わった場合、以前のApproval�
 | MarkdownとHTMLの内容が乖離する | 誤った資料を閲覧する | Markdownを正本、HTMLを再生成可能な派生物とする |
 | 出力先の既存ファイルを上書きする | 利用者データの損失 | Ownership Manifest、競合停止、原子的改版 |
 | Markdown由来のHTMLでScriptが実行される | 情報流出・任意処理 | Raw HTML無効化、URL Sanitization、CSP、外部Resource禁止 |
+| Browser UIから任意Pathへ書き込まれる | 利用者Fileの破損 | 明示Workspace Root、相対Path、no-follow、Atomic write |
+| 悪意あるLocal Web PageがControl Planeを操作する | 意図しないRun開始 | Session Token、Origin/Host/CSRF検証、CORS無効 |
+| 二重送信で複数Runが作成される | 重複費用と競合 | Idempotency Key、Intake State Revision、Run一意制約 |
 
 ## 17. 未決事項
 

@@ -138,6 +138,8 @@ The current product and architecture documents are maintained in Japanese:
 - [Architecture](docs/architecture.md)
 - [Document output design](docs/design/document-output.md)
 - [Document output implementation plan](docs/implementation-plan-document-output.md)
+- [Local browser control plane design](docs/design/local-control-plane.md)
+- [Local browser control plane implementation plan](docs/implementation-plan-local-control-plane.md)
 - [Shared agent instructions](AGENTS.md)
 - [Claude Code instructions](CLAUDE.md)
 - [Shared agent instructions (Japanese)](docs/ja/AGENTS.md)
