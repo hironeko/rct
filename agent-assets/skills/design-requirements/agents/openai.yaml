@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Requirements"
+  short_description: "Turn rough requests into testable product requirements"
+  default_prompt: "Use $design-requirements to turn this rough request into testable requirements."

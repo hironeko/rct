@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Artifact"
+  short_description: "Independently review structured delivery artifacts"
+  default_prompt: "Use $review-artifact to independently evaluate this artifact."
