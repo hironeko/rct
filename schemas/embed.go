@@ -20,6 +20,10 @@ func Plan() ([]byte, error) {
 	return read("plan.schema.json")
 }
 
+func Implementation() ([]byte, error) {
+	return read("implementation.schema.json")
+}
+
 func Review() ([]byte, error) {
 	return read("review.schema.json")
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/hironeko/loop-engine/internal/store/filesystem"
 )
 
-const Version = "0.3.0-dev"
+const Version = "0.4.0-dev"
 
 type CLI struct {
 	service *app.Service
@@ -49,6 +49,8 @@ func (c *CLI) Run(ctx context.Context, args []string) int {
 		return c.runPlan(ctx, args[1:])
 	case "approve":
 		return c.runApprove(ctx, args[1:])
+	case "implement":
+		return c.runImplement(ctx, args[1:])
 	case "status":
 		return c.runStatus(args[1:])
 	case "version":
@@ -238,6 +240,48 @@ func (c *CLI) runApprove(ctx context.Context, args []string) int {
 	return 0
 }
 
+func (c *CLI) runImplement(ctx context.Context, args []string) int {
+	flags := flag.NewFlagSet("implement", flag.ContinueOnError)
+	flags.SetOutput(c.stderr)
+	project := flags.String("project", ".", "project directory")
+	maxReviewRounds := flags.Int("max-review-rounds", 3, "maximum implementation review rounds per milestone")
+	maxVerificationAttempts := flags.Int("max-verification-attempts", 3, "maximum verification attempts per milestone")
+	asJSON := flags.Bool("json", false, "print JSON")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	absoluteProject, err := filepath.Abs(*project)
+	if err != nil {
+		fmt.Fprintf(c.stderr, "implement: resolve project: %v\n", err)
+		return 1
+	}
+	run, err := filesystem.New(absoluteProject).LoadCurrent()
+	if err != nil {
+		fmt.Fprintf(c.stderr, "implement: %v\n", err)
+		return 1
+	}
+	run, err = c.service.ExecuteImplementation(ctx, run, app.ImplementationOptions{
+		MaxReviewRounds:         *maxReviewRounds,
+		MaxVerificationAttempts: *maxVerificationAttempts,
+	})
+	if err != nil {
+		fmt.Fprintf(c.stderr, "implement: %v\n", err)
+		return 1
+	}
+	if *asJSON {
+		return c.writeJSON(run)
+	}
+	fmt.Fprintf(c.stdout, "Run: %s\n", run.ID)
+	fmt.Fprintf(c.stdout, "State: %s\n", run.State)
+	if len(run.CompletedMilestones) > 0 {
+		fmt.Fprintf(c.stdout, "Completed milestones: %s\n", strings.Join(run.CompletedMilestones, ", "))
+	}
+	if run.WaitingReason != "" {
+		fmt.Fprintf(c.stdout, "Waiting reason: %s\n", run.WaitingReason)
+	}
+	return 0
+}
+
 func (c *CLI) runDoctor(ctx context.Context, args []string) int {
 	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	flags.SetOutput(c.stderr)
@@ -343,6 +387,20 @@ func (c *CLI) runStatus(args []string) int {
 	if run.ApprovalPath != "" {
 		fmt.Fprintf(c.stdout, "Human approval: %s\n", run.ApprovalPath)
 	}
+	if run.CurrentMilestoneID != "" {
+		fmt.Fprintf(c.stdout, "Current milestone: %s\n", run.CurrentMilestoneID)
+		fmt.Fprintf(c.stdout, "Implementation round: %d/%d\n", run.ImplementationRound, run.MaxReviewRounds)
+		fmt.Fprintf(c.stdout, "Verification attempts: %d\n", run.VerificationAttempts)
+	}
+	if len(run.CompletedMilestones) > 0 {
+		fmt.Fprintf(c.stdout, "Completed milestones: %s\n", strings.Join(run.CompletedMilestones, ", "))
+	}
+	if run.VerificationPath != "" {
+		fmt.Fprintf(c.stdout, "Verification: %s\n", run.VerificationPath)
+	}
+	if run.CodeReviewPath != "" {
+		fmt.Fprintf(c.stdout, "Code review: %s\n", run.CodeReviewPath)
+	}
 	if run.Failure != "" {
 		fmt.Fprintf(c.stdout, "Failure: %s\n", run.Failure)
 	}
@@ -410,5 +468,5 @@ func (c *CLI) writeJSON(value any) int {
 
 func (c *CLI) printUsage() {
 	fmt.Fprintln(c.stderr, "Usage: loop-engine <command> [options]")
-	fmt.Fprintln(c.stderr, "Commands: start, plan, approve, doctor, status, version")
+	fmt.Fprintln(c.stderr, "Commands: start, plan, approve, implement, doctor, status, version")
 }

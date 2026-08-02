@@ -173,4 +173,4 @@ MVPは次へ限定する。
 - File-based Artifact、State、Event Log
 - 中断と再開
 
-追加Provider、Pull Request連携、デプロイ、Remoteまたは複数利用者向けWeb UIはMVP外とする。FR-190〜FR-208のLoopback限定Local Browser Control Planeはv1拡張であり、CLIと同じApplication ServiceへのInbound Adapterとして維持する。
+追加Provider、Pull Request連携、デプロイ、Remoteまたは複数利用者向けWeb UIはMVP外とする。FR-190〜FR-214のLoopback限定Local Browser Control Planeはv1拡張であり、CLIと同じApplication ServiceへのInbound Adapterとして維持する。

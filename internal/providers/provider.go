@@ -6,6 +6,13 @@ import (
 	"github.com/hironeko/loop-engine/internal/domain"
 )
 
+type AccessMode string
+
+const (
+	AccessReadOnly       AccessMode = "read-only"
+	AccessWorkspaceWrite AccessMode = "workspace-write"
+)
+
 type Job struct {
 	ID       string
 	Provider domain.Provider
@@ -14,6 +21,7 @@ type Job struct {
 	JobDir   string
 	Prompt   []byte
 	Schema   []byte
+	Access   AccessMode
 }
 
 type Result struct {

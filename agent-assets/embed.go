@@ -26,6 +26,13 @@ func ReviewerInstructions() (string, error) {
 	)
 }
 
+func ImplementerInstructions() (string, error) {
+	return join(
+		"shared/safety-rules.md",
+		"roles/implementer.md",
+	)
+}
+
 func join(paths ...string) (string, error) {
 	result := ""
 	for _, path := range paths {

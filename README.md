@@ -65,18 +65,35 @@ Check the local environment first:
 bin/loop-engine doctor --backend direct
 ```
 
-Start a requirements design and review loop from a Markdown request:
+Start the requirements, architecture, and implementation-plan loops from a Markdown request:
 
 ```bash
 bin/loop-engine start \
   --project /path/to/project \
   --backend direct \
-  --mode design-only \
+  --mode supervised \
   --designer codex \
   --request-file /path/to/request.md \
   --max-review-rounds 3 \
   --execute
 ```
+
+After the plan is independently approved, authorize its exact SHA-256 and run the milestone loop:
+
+```bash
+bin/loop-engine approve \
+  --project /path/to/project \
+  --by "$USER" \
+  --note "Approved for implementation"
+
+bin/loop-engine implement \
+  --project /path/to/project \
+  --max-review-rounds 3 \
+  --max-verification-attempts 3
+```
+
+Implementation starts only from a clean Git worktree. Each milestone is implemented, verified with the
+approved executable-and-argument arrays, independently code-reviewed, and remediated when required.
 
 To start with Claude Code as the Designer and Codex as the Reviewer:
 
@@ -90,12 +107,17 @@ bin/loop-engine start \
   --execute
 ```
 
-Direct execution currently supports the requirements generation, independent review, and finite revision loop. Herdr and tmux participate in backend detection; their managed session execution is implemented separately from the workflow core.
+Direct execution supports requirements, architecture, planning, hash-bound human authorization, milestone
+implementation, verification, independent code review, and finite remediation loops. Herdr and tmux currently
+participate in backend detection; managed-session execution and resume remain separate work.
 
 ## Commands
 
 ```text
 loop-engine start
+loop-engine plan
+loop-engine approve
+loop-engine implement
 loop-engine doctor
 loop-engine status
 loop-engine version
@@ -131,7 +153,9 @@ Run data is stored under the target project:
 .loop-engine/runs/<run-id>/
 ├── artifacts/
 ├── jobs/
-└── reviews/
+├── reviews/
+├── verification/
+└── approvals/
 ```
 
 Artifacts are versioned and reviewed by exact path and SHA-256. When a review requests changes, the next Designer session receives the previous artifact and the required findings. Reaching the review limit moves the run to a human decision state instead of silently approving it.

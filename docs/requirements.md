@@ -1,6 +1,6 @@
 # Loop Engine 要件定義書
 
-- 文書版: 0.7.0-draft
+- 文書版: 0.8.0-draft
 - ステータス: Draft（React/TypeScript UI方針追加、独立レビュー待ち）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
@@ -1706,6 +1706,19 @@ New request/New applicationのForm送信、Intake確認、Run表示のFrontend T
 Requirements承認済みRunへPlanningを実行すると、Architecture生成・独立Review・必要な修正が先に収束し、
 承認されたArchitectureを入力としてImplementation Plan生成・独立Review・必要な修正が実行される。
 ArchitectureまたはPlanのReview上限、`blocked`、Stale Hashでは次工程へ進まない。
+
+### AC-050
+
+Supervised Runの承認済みPlan Hashに対してHuman approvalを記録した後、Clean Git Worktreeで
+`loop-engine implement`を実行すると、Plan順に一つのMilestoneだけをImplementerが変更し、承認済み
+引数配列のVerificationがすべて成功した場合だけ独立Code Reviewへ進む。
+
+### AC-051
+
+Verification失敗時はCode Reviewerを起動せず、失敗記録をImplementerへ渡して有限回修正する。
+Code Reviewの`changes_requested`ではReview結果をImplementerへ渡し、再Verification後に新しい
+Diff Subject Hashで再Reviewする。全MilestoneがVerification成功かつ`approved`になった場合だけ
+Runを`COMPLETED`へ遷移する。
 
 ## 16. 初期リスク
 

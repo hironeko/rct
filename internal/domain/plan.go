@@ -90,6 +90,9 @@ func ValidateCommandSpec(command CommandSpec) error {
 	if strings.ContainsAny(executable, "/\\") {
 		return fmt.Errorf("verification executable %q must be resolved from PATH", executable)
 	}
+	if strings.ContainsAny(executable, " \t\r\n") {
+		return fmt.Errorf("verification executable %q must not contain whitespace", executable)
+	}
 	switch executable {
 	case "sh", "bash", "zsh", "fish", "dash", "sudo", "doas", "env":
 		return fmt.Errorf("verification executable %q is not allowed", executable)

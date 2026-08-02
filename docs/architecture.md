@@ -1,8 +1,8 @@
 # Loop Engine アーキテクチャ設計書
 
-- 文書版: 0.6.0-draft
+- 文書版: 0.7.0-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.7.0-draft
+- 対応要件: `requirements.md` 0.8.0-draft
 - Draft拡張注記: Document Artifact移行方針とApproval Gate責務分離を含む。
   独立Review承認後にDraft表記を更新する
 - 実装言語: Go
@@ -581,7 +581,9 @@ MVPで利用可能なProviderがCodexとClaude Codeの二つだけの場合、De
 
 ### 8.6 Direct実行仕様
 
-Design-onlyのDesignerおよびReviewerは、どちらのProviderでも読取専用で実行する。成果物はAgent自身にProjectへ書かせず、構造化出力をLoop Engineが検証してRun Directoryへ保存する。
+DesignerおよびReviewerは、どちらのProviderでも読取専用で実行する。成果物はAgent自身にProjectへ
+書かせず、構造化出力をLoop Engineが検証してRun Directoryへ保存する。ImplementerだけはHuman
+Authorization済みPlanの一つのMilestoneに対してWorkspace writeを許可する。
 
 Codex:
 
@@ -613,6 +615,12 @@ claude
 ```
 
 両AdapterともPromptを標準入力で渡す。個人のModel、MCP、Hookなどによって管理Jobの意味が変わらないよう、CodexはUser ConfigとRulesを読み込まず、Claude CodeはSafe Modeで起動する。認証情報は各CLIの既存状態を利用する。
+
+Implementer JobではCodexを`--sandbox workspace-write`、Claude Codeを
+`--permission-mode acceptEdits --tools=Read,Glob,Grep,Edit,Write`で起動する。Claude Implementerの
+Verification command実行はLoop Engineへ集約する。Job前後でGit HEADと
+Indexを検査し、CommitまたはStageを検出した場合はRunを失敗させる。Reviewer Jobは上記の読取専用
+Profileを維持する。
 
 各Runの開始前に、割り当てられた全Providerの実行ファイルと認証状態を検査する。Reviewerが利用不能な場合、Designerを先に実行せず停止する。
 
@@ -1047,6 +1055,18 @@ Planningだけを再開する場合は次を使用する。
 loop-engine plan --project <path> [--max-review-rounds 3]
 ```
 
+Supervised modeではPlan Gate通過後にHash固定のHuman Authorizationを記録し、実装を開始する。
+
+```text
+loop-engine approve --project <path> --by <identifier> [--note "..."]
+loop-engine implement --project <path> \
+  --max-review-rounds 3 \
+  --max-verification-attempts 3
+```
+
+`implement`はClean Worktreeと不変のPlan Hashを確認し、MilestoneごとにImplementer、Verification、
+独立Code Review、必要なFixを有限回実行する。Verification失敗時はCode Reviewへ進まない。
+
 ### 18.2 Status
 
 ```text
@@ -1267,6 +1287,7 @@ loop-engine/
 │   └── cli/
 ├── schemas/
 │   ├── architecture.schema.json
+│   ├── implementation.schema.json
 │   ├── plan.schema.json
 │   ├── requirements.schema.json
 │   ├── review.schema.json

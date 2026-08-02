@@ -21,24 +21,26 @@ import (
 )
 
 type Dependencies struct {
-	LookPath     func(string) (string, error)
-	Getenv       func(string) string
-	Now          func() time.Time
-	Random       io.Reader
-	Agent        providers.Gateway
-	JobTimeout   time.Duration
-	ProviderAuth func(context.Context, domain.Provider) error
+	LookPath      func(string) (string, error)
+	Getenv        func(string) string
+	Now           func() time.Time
+	Random        io.Reader
+	Agent         providers.Gateway
+	JobTimeout    time.Duration
+	ProviderAuth  func(context.Context, domain.Provider) error
+	ProcessRunner loopruntime.ProcessRunner
 }
 
 func DefaultDependencies() Dependencies {
 	return Dependencies{
-		LookPath:     exec.LookPath,
-		Getenv:       os.Getenv,
-		Now:          time.Now,
-		Random:       rand.Reader,
-		Agent:        providers.NewCLIGateway(loopruntime.DirectProcessRunner{}),
-		JobTimeout:   15 * time.Minute,
-		ProviderAuth: probeProviderAuth,
+		LookPath:      exec.LookPath,
+		Getenv:        os.Getenv,
+		Now:           time.Now,
+		Random:        rand.Reader,
+		Agent:         providers.NewCLIGateway(loopruntime.DirectProcessRunner{}),
+		JobTimeout:    15 * time.Minute,
+		ProviderAuth:  probeProviderAuth,
+		ProcessRunner: loopruntime.DirectProcessRunner{},
 	}
 }
 
@@ -46,6 +48,7 @@ type Service struct {
 	deps       Dependencies
 	agent      providers.Gateway
 	jobTimeout time.Duration
+	runner     loopruntime.ProcessRunner
 }
 
 func NewService(deps Dependencies) *Service {
@@ -70,10 +73,14 @@ func NewService(deps Dependencies) *Service {
 	if deps.ProviderAuth == nil {
 		deps.ProviderAuth = probeProviderAuth
 	}
+	if deps.ProcessRunner == nil {
+		deps.ProcessRunner = loopruntime.DirectProcessRunner{}
+	}
 	return &Service{
 		deps:       deps,
 		agent:      deps.Agent,
 		jobTimeout: deps.JobTimeout,
+		runner:     deps.ProcessRunner,
 	}
 }
 

@@ -108,6 +108,10 @@ func (g *CLIGateway) executeCodex(
 	schemaPath string,
 ) (loopruntime.ProcessResult, []byte, error) {
 	outputPath := filepath.Join(job.JobDir, "codex-final.json")
+	sandbox := "read-only"
+	if job.Access == AccessWorkspaceWrite {
+		sandbox = "workspace-write"
+	}
 	result, err := g.runner.Run(ctx, loopruntime.ProcessRequest{
 		Executable: domain.ProviderCodex.Executable(),
 		Args: []string{
@@ -115,7 +119,7 @@ func (g *CLIGateway) executeCodex(
 			"--ephemeral",
 			"--ignore-user-config",
 			"--ignore-rules",
-			"--sandbox", "read-only",
+			"--sandbox", sandbox,
 			"--skip-git-repo-check",
 			"--output-schema", schemaPath,
 			"--output-last-message", outputPath,
@@ -139,6 +143,12 @@ func (g *CLIGateway) executeClaude(
 	ctx context.Context,
 	job Job,
 ) (loopruntime.ProcessResult, []byte, error) {
+	permissionMode := "dontAsk"
+	tools := "Read,Glob,Grep"
+	if job.Access == AccessWorkspaceWrite {
+		permissionMode = "acceptEdits"
+		tools = "Read,Glob,Grep,Edit,Write"
+	}
 	result, err := g.runner.Run(ctx, loopruntime.ProcessRequest{
 		Executable: domain.ProviderClaude.Executable(),
 		Args: []string{
@@ -146,8 +156,8 @@ func (g *CLIGateway) executeClaude(
 			"--safe-mode",
 			"--output-format", "json",
 			"--json-schema", string(job.Schema),
-			"--permission-mode", "dontAsk",
-			"--tools=Read,Glob,Grep",
+			"--permission-mode", permissionMode,
+			"--tools=" + tools,
 			"--no-chrome",
 			"--no-session-persistence",
 		},
@@ -181,8 +191,18 @@ func validateJob(job Job) error {
 	if job.Provider != domain.ProviderCodex && job.Provider != domain.ProviderClaude {
 		return fmt.Errorf("unsupported provider %q", job.Provider)
 	}
-	if job.Role != domain.RoleDesigner && job.Role != domain.RoleReviewer {
-		return fmt.Errorf("unsupported role %q for structured design flow", job.Role)
+	if job.Role != domain.RoleDesigner && job.Role != domain.RoleReviewer &&
+		job.Role != domain.RoleImplementer {
+		return fmt.Errorf("unsupported role %q for structured workflow", job.Role)
+	}
+	if job.Access == "" {
+		job.Access = AccessReadOnly
+	}
+	if job.Access != AccessReadOnly && job.Access != AccessWorkspaceWrite {
+		return fmt.Errorf("unsupported job access mode %q", job.Access)
+	}
+	if job.Access == AccessWorkspaceWrite && job.Role != domain.RoleImplementer {
+		return fmt.Errorf("workspace-write access is only valid for implementer jobs")
 	}
 	if strings.TrimSpace(job.Project) == "" {
 		return errors.New("project directory is required")

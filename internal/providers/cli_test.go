@@ -64,6 +64,40 @@ func TestCLIGatewayExecutesCodexWithReadOnlyStructuredOutput(t *testing.T) {
 	}
 }
 
+func TestCLIGatewayExecutesCodexImplementerWithWorkspaceWrite(t *testing.T) {
+	t.Parallel()
+
+	expected := []byte(`{"schema_version":"1.0","milestone_id":"M01"}`)
+	runner := &fakeRunner{
+		run: func(request loopruntime.ProcessRequest) (loopruntime.ProcessResult, error) {
+			outputIndex := slices.Index(request.Args, "--output-last-message")
+			if outputIndex < 0 || outputIndex+1 >= len(request.Args) {
+				t.Fatal("Codex args do not contain output path")
+			}
+			if err := os.WriteFile(request.Args[outputIndex+1], expected, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return loopruntime.ProcessResult{}, nil
+		},
+	}
+	_, err := NewCLIGateway(runner).Execute(context.Background(), Job{
+		ID:       "m01-r01-implementer",
+		Provider: domain.ProviderCodex,
+		Role:     domain.RoleImplementer,
+		Project:  t.TempDir(),
+		JobDir:   t.TempDir(),
+		Prompt:   []byte("implement"),
+		Schema:   []byte(`{"type":"object"}`),
+		Access:   AccessWorkspaceWrite,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error: %v", err)
+	}
+	if !slices.Contains(runner.request.Args, "workspace-write") {
+		t.Fatalf("Codex args = %#v, want workspace-write sandbox", runner.request.Args)
+	}
+}
+
 func TestCLIGatewayExtractsClaudeStructuredOutput(t *testing.T) {
 	t.Parallel()
 
@@ -104,6 +138,38 @@ func TestCLIGatewayExtractsClaudeStructuredOutput(t *testing.T) {
 	}
 	if runner.request.Directory == "" || filepath.Clean(runner.request.Directory) == "." {
 		t.Fatalf("directory = %q, want explicit project", runner.request.Directory)
+	}
+}
+
+func TestCLIGatewayConfiguresClaudeImplementerTools(t *testing.T) {
+	t.Parallel()
+
+	structured := json.RawMessage(`{"schema_version":"1.0","milestone_id":"M01"}`)
+	envelope, err := json.Marshal(map[string]any{"structured_output": structured})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{
+		run: func(loopruntime.ProcessRequest) (loopruntime.ProcessResult, error) {
+			return loopruntime.ProcessResult{Stdout: envelope}, nil
+		},
+	}
+	_, err = NewCLIGateway(runner).Execute(context.Background(), Job{
+		ID:       "m01-r01-implementer",
+		Provider: domain.ProviderClaude,
+		Role:     domain.RoleImplementer,
+		Project:  t.TempDir(),
+		JobDir:   t.TempDir(),
+		Prompt:   []byte("implement"),
+		Schema:   []byte(`{"type":"object"}`),
+		Access:   AccessWorkspaceWrite,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error: %v", err)
+	}
+	if !slices.Contains(runner.request.Args, "acceptEdits") ||
+		!slices.Contains(runner.request.Args, "--tools=Read,Glob,Grep,Edit,Write") {
+		t.Fatalf("Claude args = %#v, want implementer permissions", runner.request.Args)
 	}
 }
 

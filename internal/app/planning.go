@@ -167,7 +167,14 @@ func (s *Service) ExecutePlanning(
 			return run, err
 		}
 	case domain.ModeDesignOnly:
-		// PLAN_APPROVED is terminal for design-only execution.
+		if err := s.transition(
+			store,
+			&run,
+			domain.StatePlanApproved,
+			"DesignOnlyPlanningCompleted",
+		); err != nil {
+			return run, err
+		}
 	default:
 		return s.failRun(store, run, fmt.Errorf("unsupported run mode %q", run.Mode))
 	}

@@ -94,6 +94,7 @@ type Run struct {
 	VerificationPath     string               `json:"verification_path,omitempty"`
 	CodeReviewPath       string               `json:"code_review_path,omitempty"`
 	CompletedMilestones  []string             `json:"completed_milestones,omitempty"`
+	BaseCommit           string               `json:"implementation_base_commit,omitempty"`
 	WaitingReason        string               `json:"waiting_reason,omitempty"`
 	LastVerdict          Verdict              `json:"last_verdict,omitempty"`
 	Failure              string               `json:"failure,omitempty"`

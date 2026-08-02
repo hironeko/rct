@@ -18,6 +18,7 @@ func TestEmbeddedSchemasCompileAndRejectIncompleteOutput(t *testing.T) {
 		{name: "requirements", load: schemas.Requirements},
 		{name: "architecture", load: schemas.Architecture},
 		{name: "plan", load: schemas.Plan},
+		{name: "implementation", load: schemas.Implementation},
 		{name: "review", load: schemas.Review},
 	}
 	for _, test := range tests {
