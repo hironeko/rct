@@ -47,6 +47,8 @@ func (c *CLI) Run(ctx context.Context, args []string) int {
 		return c.runDoctor(ctx, args[1:])
 	case "plan":
 		return c.runPlan(ctx, args[1:])
+	case "approve":
+		return c.runApprove(ctx, args[1:])
 	case "status":
 		return c.runStatus(args[1:])
 	case "version":
@@ -200,6 +202,42 @@ func (c *CLI) runPlan(ctx context.Context, args []string) int {
 	return 0
 }
 
+func (c *CLI) runApprove(ctx context.Context, args []string) int {
+	flags := flag.NewFlagSet("approve", flag.ContinueOnError)
+	flags.SetOutput(c.stderr)
+	project := flags.String("project", ".", "project directory")
+	approverDefault := strings.TrimSpace(os.Getenv("USER"))
+	if approverDefault == "" {
+		approverDefault = "local-user"
+	}
+	approver := flags.String("by", approverDefault, "approver identifier")
+	note := flags.String("note", "", "optional approval note")
+	expectedRevision := flags.Uint64("revision", 0, "expected state revision; zero uses current revision")
+	asJSON := flags.Bool("json", false, "print JSON")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	run, err := c.service.Approve(ctx, app.ApproveOptions{
+		Project:          *project,
+		Approver:         *approver,
+		Note:             *note,
+		ExpectedRevision: *expectedRevision,
+	})
+	if err != nil {
+		fmt.Fprintf(c.stderr, "approve: %v\n", err)
+		return 1
+	}
+	if *asJSON {
+		return c.writeJSON(run)
+	}
+	fmt.Fprintf(c.stdout, "Run: %s\n", run.ID)
+	fmt.Fprintf(c.stdout, "State: %s\n", run.State)
+	fmt.Fprintf(c.stdout, "Approved plan SHA-256: %s\n", run.Approval.SubjectSHA256)
+	fmt.Fprintf(c.stdout, "Approval record: %s\n", run.ApprovalPath)
+	fmt.Fprintln(c.stdout, "Next: loop-engine implement --project <path>")
+	return 0
+}
+
 func (c *CLI) runDoctor(ctx context.Context, args []string) int {
 	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	flags.SetOutput(c.stderr)
@@ -302,6 +340,9 @@ func (c *CLI) runStatus(args []string) int {
 	if run.WaitingReason != "" {
 		fmt.Fprintf(c.stdout, "Waiting reason: %s\n", run.WaitingReason)
 	}
+	if run.ApprovalPath != "" {
+		fmt.Fprintf(c.stdout, "Human approval: %s\n", run.ApprovalPath)
+	}
 	if run.Failure != "" {
 		fmt.Fprintf(c.stdout, "Failure: %s\n", run.Failure)
 	}
@@ -369,5 +410,5 @@ func (c *CLI) writeJSON(value any) int {
 
 func (c *CLI) printUsage() {
 	fmt.Fprintln(c.stderr, "Usage: loop-engine <command> [options]")
-	fmt.Fprintln(c.stderr, "Commands: start, plan, doctor, status, version")
+	fmt.Fprintln(c.stderr, "Commands: start, plan, approve, doctor, status, version")
 }

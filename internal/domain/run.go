@@ -85,6 +85,7 @@ type Run struct {
 	PlanSHA256           string               `json:"plan_sha256,omitempty"`
 	ApprovalTargetHash   string               `json:"approval_target_sha256,omitempty"`
 	Approval             *HumanApprovalRecord `json:"human_approval,omitempty"`
+	ApprovalPath         string               `json:"human_approval_path,omitempty"`
 	CurrentMilestone     int                  `json:"current_milestone,omitempty"`
 	CurrentMilestoneID   string               `json:"current_milestone_id,omitempty"`
 	ImplementationRound  int                  `json:"implementation_round,omitempty"`
