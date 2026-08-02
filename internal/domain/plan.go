@@ -6,6 +6,33 @@ import (
 	"strings"
 )
 
+var allowedVerificationExecutables = map[string]struct{}{
+	"bun":        {},
+	"cargo":      {},
+	"cmake":      {},
+	"ctest":      {},
+	"deno":       {},
+	"dotnet":     {},
+	"eslint":     {},
+	"go":         {},
+	"gradle":     {},
+	"make":       {},
+	"mypy":       {},
+	"mvn":        {},
+	"ninja":      {},
+	"npm":        {},
+	"pnpm":       {},
+	"poetry":     {},
+	"pytest":     {},
+	"ruff":       {},
+	"swift":      {},
+	"tox":        {},
+	"tsc":        {},
+	"uv":         {},
+	"xcodebuild": {},
+	"yarn":       {},
+}
+
 type CommandSpec struct {
 	Executable string   `json:"executable"`
 	Args       []string `json:"args"`
@@ -93,8 +120,7 @@ func ValidateCommandSpec(command CommandSpec) error {
 	if strings.ContainsAny(executable, " \t\r\n") {
 		return fmt.Errorf("verification executable %q must not contain whitespace", executable)
 	}
-	switch executable {
-	case "sh", "bash", "zsh", "fish", "dash", "sudo", "doas", "env":
+	if _, allowed := allowedVerificationExecutables[executable]; !allowed {
 		return fmt.Errorf("verification executable %q is not allowed", executable)
 	}
 	for _, arg := range command.Args {

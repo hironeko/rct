@@ -20,6 +20,28 @@ import (
 
 const maxUntrackedReviewBytes = 256 * 1024
 
+var verificationEnvironmentKeys = []string{
+	"PATH",
+	"HOME",
+	"TMPDIR",
+	"TMP",
+	"TEMP",
+	"LANG",
+	"LC_ALL",
+	"LC_CTYPE",
+	"USER",
+	"LOGNAME",
+	"GOCACHE",
+	"GOPATH",
+	"GOMODCACHE",
+	"CGO_ENABLED",
+	"CC",
+	"CXX",
+	"JAVA_HOME",
+	"SDKROOT",
+	"DEVELOPER_DIR",
+}
+
 type ImplementationOptions struct {
 	MaxReviewRounds         int
 	MaxVerificationAttempts int
@@ -722,6 +744,7 @@ func (s *Service) verifyMilestone(
 			Executable: command.Executable,
 			Args:       append([]string(nil), command.Args...),
 			Directory:  run.Project,
+			Env:        verificationEnvironment(s.deps.Getenv),
 		})
 		cancel()
 		stdoutPath, err := store.WriteRunFile(
@@ -765,31 +788,84 @@ func (s *Service) verifyMilestone(
 	return record, encoded, nil
 }
 
+func verificationEnvironment(getenv func(string) string) []string {
+	environment := make([]string, 0, len(verificationEnvironmentKeys)+1)
+	for _, key := range verificationEnvironmentKeys {
+		if value := getenv(key); value != "" {
+			environment = append(environment, key+"="+value)
+		}
+	}
+	return append(environment, "CI=1")
+}
+
 func (s *Service) requireCleanImplementationWorktree(ctx context.Context, project string) error {
-	status, err := s.gitText(ctx, project, "status", "--porcelain=v1", "--untracked-files=all")
+	status, err := s.gitText(ctx, project, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
 		return fmt.Errorf("inspect git worktree: %w", err)
 	}
-	filtered := filterInternalStatus(status)
-	if strings.TrimSpace(filtered) != "" {
-		return fmt.Errorf("implementation requires a clean git worktree; changes found:\n%s", filtered)
+	entries, err := parseGitStatus(status)
+	if err != nil {
+		return fmt.Errorf("parse git worktree status: %w", err)
+	}
+	entries = filterInternalStatus(entries)
+	if len(entries) > 0 {
+		return fmt.Errorf("implementation requires a clean git worktree; changes found:\n%s", formatGitStatus(entries))
 	}
 	return nil
 }
 
-func filterInternalStatus(status string) string {
-	var lines []string
-	for _, line := range strings.Split(status, "\n") {
-		if strings.TrimSpace(line) == "" {
+type gitStatusEntry struct {
+	Code         string
+	Path         string
+	OriginalPath string
+}
+
+func parseGitStatus(status string) ([]gitStatusEntry, error) {
+	records := strings.Split(status, "\x00")
+	entries := make([]gitStatusEntry, 0, len(records))
+	for index := 0; index < len(records); index++ {
+		record := records[index]
+		if record == "" {
 			continue
 		}
-		if len(line) < 3 {
-			lines = append(lines, line)
+		if len(record) < 4 || record[2] != ' ' {
+			return nil, fmt.Errorf("invalid porcelain v1 -z record %q", record)
+		}
+		entry := gitStatusEntry{Code: record[:2], Path: record[3:]}
+		if strings.ContainsAny(entry.Code, "RC") {
+			index++
+			if index >= len(records) || records[index] == "" {
+				return nil, fmt.Errorf("renamed path %q has no original path", entry.Path)
+			}
+			entry.OriginalPath = records[index]
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+func filterInternalStatus(entries []gitStatusEntry) []gitStatusEntry {
+	filtered := make([]gitStatusEntry, 0, len(entries))
+	for _, entry := range entries {
+		if isInternalStatusPath(entry.Path) &&
+			(entry.OriginalPath == "" || isInternalStatusPath(entry.OriginalPath)) {
 			continue
 		}
-		path := strings.TrimSpace(line[2:])
-		if path == ".loop-engine" || strings.HasPrefix(path, ".loop-engine/") {
-			continue
+		filtered = append(filtered, entry)
+	}
+	return filtered
+}
+
+func isInternalStatusPath(path string) bool {
+	return path == ".loop-engine" || strings.HasPrefix(path, ".loop-engine/")
+}
+
+func formatGitStatus(entries []gitStatusEntry) string {
+	lines := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		line := fmt.Sprintf("%s %q", entry.Code, entry.Path)
+		if entry.OriginalPath != "" {
+			line += fmt.Sprintf(" (from %q)", entry.OriginalPath)
 		}
 		lines = append(lines, line)
 	}
@@ -804,13 +880,17 @@ func (s *Service) ensureBaseCommitUnchanged(ctx context.Context, run domain.Run)
 	if strings.TrimSpace(current) != run.BaseCommit {
 		return errors.New("git HEAD changed during implementation; commits are not authorized")
 	}
-	status, err := s.gitText(ctx, run.Project, "status", "--porcelain=v1", "--untracked-files=all")
+	status, err := s.gitText(ctx, run.Project, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
 		return err
 	}
-	for _, line := range strings.Split(filterInternalStatus(status), "\n") {
-		if len(line) >= 2 && line[0] != ' ' && line[0] != '?' {
-			return fmt.Errorf("git index changed during implementation: %s", line)
+	entries, err := parseGitStatus(status)
+	if err != nil {
+		return err
+	}
+	for _, entry := range filterInternalStatus(entries) {
+		if entry.Code[0] != ' ' && entry.Code[0] != '?' {
+			return fmt.Errorf("git index changed during implementation: %s", formatGitStatus([]gitStatusEntry{entry}))
 		}
 	}
 	return nil
@@ -841,14 +921,19 @@ func (s *Service) buildCodeReviewSubject(
 	requirements, architecture, plan []byte,
 	implementationResult, verification []byte,
 ) ([]byte, error) {
-	status, err := s.gitText(ctx, run.Project, "status", "--porcelain=v1", "--untracked-files=all")
+	status, err := s.gitText(ctx, run.Project, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
 		return nil, err
 	}
-	status = filterInternalStatus(status)
-	if strings.TrimSpace(status) == "" {
+	entries, err := parseGitStatus(status)
+	if err != nil {
+		return nil, err
+	}
+	entries = filterInternalStatus(entries)
+	if len(entries) == 0 {
 		return nil, fmt.Errorf("milestone %s produced no reviewable source changes", milestone.ID)
 	}
+	formattedStatus := formatGitStatus(entries)
 	diff, err := s.gitText(
 		ctx,
 		run.Project,
@@ -880,16 +965,16 @@ func (s *Service) buildCodeReviewSubject(
 	subject.WriteString("\n```\n\n## Verification\n\n```json\n")
 	subject.WriteString(prettyJSON(verification))
 	subject.WriteString("\n```\n\n## Git status\n\n```text\n")
-	subject.WriteString(status)
+	subject.WriteString(formattedStatus)
 	subject.WriteString("\n```\n\n## Git diff\n\n```diff\n")
 	subject.WriteString(diff)
 	subject.WriteString("\n```\n")
 
-	for _, line := range strings.Split(status, "\n") {
-		if !strings.HasPrefix(line, "?? ") {
+	for _, entry := range entries {
+		if entry.Code != "??" {
 			continue
 		}
-		relative := strings.TrimSpace(strings.TrimPrefix(line, "?? "))
+		relative := entry.Path
 		clean := filepath.Clean(relative)
 		if clean == "." || filepath.IsAbs(clean) || clean == ".." ||
 			strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
@@ -904,14 +989,14 @@ func (s *Service) buildCodeReviewSubject(
 			continue
 		}
 		if info.Size() > maxUntrackedReviewBytes {
-			fmt.Fprintf(&subject, "\n## Untracked file `%s`\n\nOmitted: file exceeds %d bytes.\n", filepath.ToSlash(clean), maxUntrackedReviewBytes)
+			fmt.Fprintf(&subject, "\n## Untracked file %q\n\nOmitted: file exceeds %d bytes.\n", filepath.ToSlash(clean), maxUntrackedReviewBytes)
 			continue
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
 		}
-		fmt.Fprintf(&subject, "\n## Untracked file `%s`\n\n```text\n%s\n```\n", filepath.ToSlash(clean), data)
+		fmt.Fprintf(&subject, "\n## Untracked file %q\n\n```text\n%s\n```\n", filepath.ToSlash(clean), data)
 	}
 	return []byte(subject.String()), nil
 }

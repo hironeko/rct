@@ -2,6 +2,9 @@ package domain
 
 import (
 	"encoding/json"
+	"os"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -20,6 +23,56 @@ func TestParseImplementationPlanRejectsShellVerification(t *testing.T) {
 	_, err = ParseImplementationPlan(data)
 	if err == nil || !strings.Contains(err.Error(), "is not allowed") {
 		t.Fatalf("ParseImplementationPlan() error = %v, want shell rejection", err)
+	}
+}
+
+func TestParseImplementationPlanRejectsExecutableOutsideAllowlist(t *testing.T) {
+	t.Parallel()
+
+	plan := validPlanDocument()
+	plan["milestones"].([]any)[0].(map[string]any)["verification_commands"] = []any{
+		map[string]any{"executable": "curl", "args": []string{"https://example.invalid"}},
+	}
+	data, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ParseImplementationPlan(data)
+	if err == nil || !strings.Contains(err.Error(), "is not allowed") {
+		t.Fatalf("ParseImplementationPlan() error = %v, want allowlist rejection", err)
+	}
+}
+
+func TestVerificationExecutableAllowlistMatchesPlanSchema(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile("../../schemas/plan.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	properties := schema["properties"].(map[string]any)
+	milestones := properties["milestones"].(map[string]any)
+	milestoneProperties := milestones["items"].(map[string]any)["properties"].(map[string]any)
+	commands := milestoneProperties["verification_commands"].(map[string]any)
+	commandProperties := commands["items"].(map[string]any)["properties"].(map[string]any)
+	executable := commandProperties["executable"].(map[string]any)
+
+	var schemaAllowlist []string
+	for _, value := range executable["enum"].([]any) {
+		schemaAllowlist = append(schemaAllowlist, value.(string))
+	}
+	var domainAllowlist []string
+	for value := range allowedVerificationExecutables {
+		domainAllowlist = append(domainAllowlist, value)
+	}
+	sort.Strings(schemaAllowlist)
+	sort.Strings(domainAllowlist)
+	if !reflect.DeepEqual(schemaAllowlist, domainAllowlist) {
+		t.Fatalf("schema allowlist = %v, domain allowlist = %v", schemaAllowlist, domainAllowlist)
 	}
 }
 

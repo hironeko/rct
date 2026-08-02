@@ -45,7 +45,35 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "executable": { "type": "string", "minLength": 1 },
+                "executable": {
+                  "type": "string",
+                  "enum": [
+                    "bun",
+                    "cargo",
+                    "cmake",
+                    "ctest",
+                    "deno",
+                    "dotnet",
+                    "eslint",
+                    "go",
+                    "gradle",
+                    "make",
+                    "mypy",
+                    "mvn",
+                    "ninja",
+                    "npm",
+                    "pnpm",
+                    "poetry",
+                    "pytest",
+                    "ruff",
+                    "swift",
+                    "tox",
+                    "tsc",
+                    "uv",
+                    "xcodebuild",
+                    "yarn"
+                  ]
+                },
                 "args": {
                   "type": "array",
                   "items": { "type": "string" }

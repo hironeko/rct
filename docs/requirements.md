@@ -1,7 +1,7 @@
 # Loop Engine 要件定義書
 
-- 文書版: 0.8.2-draft
-- ステータス: Draft（Core Loop実装済み、Local Browser Control Plane設計Review approved）
+- 文書版: 0.8.3-draft
+- ステータス: Draft（Core Loop Claude Review RC-036〜RC-038反映済み）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
 - 実装言語: Go
@@ -375,6 +375,12 @@ Loop Engineは対象ディレクトリから次を調査し、Project Profileを
 #### FR-033
 
 推定した任意コマンドを初回から無制限に実行しないこと。実行対象は設定、既知のマニフェスト、承認済みProject Profileのいずれかから得ること。
+
+MVPのImplementation Planに記録できるVerification ExecutableはLoop Engine組込みAllowlistに限定し、
+`curl`、汎用Interpreter、Shell、Privilege Escalation ToolなどAllowlist外のExecutableはProcess生成前に
+拒否すること。子Processへ渡すEnvironmentは明示Allowlistから再構成し、親Processの環境変数全体を
+継承してはならない。組込みAllowlist外のCommand Profile拡張は、Project Profile由来の根拠と利用者の
+明示承認を保持できる仕様が実装されるまで提供しない。
 
 ### 9.5 要件定義と設計
 
@@ -1056,6 +1062,8 @@ Human Approval Recordは少なくともRun ID、Gate Kind、対象Phaseまたは
 
 Human Approvalは一つのGate遷移に一度だけ使用できること。受理時にApproval Recordの保存、
 Event追記、State Revision確認、次状態への遷移を一つの論理操作として行うこと。
+State永続化はRun単位の排他Lock内で現在RevisionとExpected Revisionを再読込・比較する
+Compare-and-Swapとし、同じRevisionを対象とする同時承認では一件だけを成功させること。
 
 #### FR-184
 
@@ -1743,6 +1751,23 @@ Intake/Runを返すかRevision Conflictとして失敗する。Run IDは二つ�
 
 Workspace Directory一覧は`.git`、`.hg`、`.svn`を返さず、相対Pathを直接指定してもそれらの配下へ
 New requestまたはNew applicationを作成しない。
+
+### AC-055
+
+Implementation Planが`curl`またはAllowlist外ExecutableをVerification Commandへ指定した場合、
+Loop EngineはProcessを一度も生成せずPlanまたはVerificationを拒否する。許可Commandの子Processには
+`PATH`など明示許可されたEnvironmentだけが渡され、親ProcessのCredential環境変数を継承しない。
+
+### AC-056
+
+Git Worktreeに日本語名または空白を含む未追跡Fileがある場合、Code Review Subject生成は失敗せず、
+安全な相対PathとSize上限を維持したまま対象Fileの内容をReviewer Evidenceへ含める。
+
+### AC-057
+
+同じRunとExpected State Revisionに対する二つのHuman Approvalを同時実行した場合、Storeの原子的な
+Revision CASに成功した一件だけが`IMPLEMENTATION_READY`へ遷移し、もう一件はRevision Conflictまたは
+遷移済みStateとして拒否される。
 
 ## 16. 初期リスク
 

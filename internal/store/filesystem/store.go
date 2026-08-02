@@ -7,11 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/hironeko/loop-engine/internal/domain"
 )
 
 const stateDirectory = ".loop-engine"
+
+var ErrRevisionConflict = errors.New("state revision conflict")
 
 type Store struct {
 	project string
@@ -83,13 +86,17 @@ func (s *Store) LoadCurrent() (domain.Run, error) {
 		return domain.Run{}, errors.New("current run reference is empty")
 	}
 
-	state, err := os.ReadFile(filepath.Join(base, "runs", runID, "state.json"))
+	return s.loadRun(runID)
+}
+
+func (s *Store) loadRun(runID string) (domain.Run, error) {
+	state, err := os.ReadFile(filepath.Join(s.runDir(runID), "state.json"))
 	if err != nil {
-		return domain.Run{}, fmt.Errorf("read current run state: %w", err)
+		return domain.Run{}, fmt.Errorf("read run state: %w", err)
 	}
 	var run domain.Run
 	if err := json.Unmarshal(state, &run); err != nil {
-		return domain.Run{}, fmt.Errorf("decode current run state: %w", err)
+		return domain.Run{}, fmt.Errorf("decode run state: %w", err)
 	}
 	return run, nil
 }
@@ -107,16 +114,24 @@ func (s *Store) RunDir(runID string) string {
 }
 
 func (s *Store) WriteRunFile(runID, relativePath string, data []byte) (string, error) {
-	clean := filepath.Clean(relativePath)
-	if clean == "." || filepath.IsAbs(clean) || clean == ".." ||
-		strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("invalid run-relative path %q", relativePath)
+	clean, err := cleanRunRelativePath(relativePath)
+	if err != nil {
+		return "", err
 	}
 	path := filepath.Join(s.runDir(runID), clean)
 	if err := writeAtomic(path, appendNewline(data), 0o600); err != nil {
 		return "", fmt.Errorf("write run file %q: %w", relativePath, err)
 	}
 	return filepath.ToSlash(filepath.Join(".loop-engine", "runs", runID, clean)), nil
+}
+
+func cleanRunRelativePath(relativePath string) (string, error) {
+	clean := filepath.Clean(relativePath)
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." ||
+		strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid run-relative path %q", relativePath)
+	}
+	return clean, nil
 }
 
 func (s *Store) ReadRunFile(runID, relativePath string) ([]byte, error) {
@@ -142,6 +157,84 @@ func (s *Store) ReadArtifact(runID, logicalPath string) ([]byte, error) {
 }
 
 func (s *Store) Update(run domain.Run, previous domain.WorkflowState, eventType string) error {
+	if run.Revision == 0 {
+		return errors.New("updated run revision must be greater than zero")
+	}
+	return s.UpdateExpected(run, previous, eventType, run.Revision-1)
+}
+
+func (s *Store) UpdateExpected(
+	run domain.Run,
+	previous domain.WorkflowState,
+	eventType string,
+	expectedRevision uint64,
+) error {
+	return s.withRunStateLock(run.ID, func() error {
+		return s.updateExpectedLocked(run, previous, eventType, expectedRevision, nil)
+	})
+}
+
+func (s *Store) UpdateExpectedWithRunFile(
+	run domain.Run,
+	previous domain.WorkflowState,
+	eventType string,
+	expectedRevision uint64,
+	relativePath string,
+	data []byte,
+) error {
+	clean, err := cleanRunRelativePath(relativePath)
+	if err != nil {
+		return err
+	}
+	return s.withRunStateLock(run.ID, func() error {
+		return s.updateExpectedLocked(run, previous, eventType, expectedRevision, func() error {
+			if err := writeAtomic(
+				filepath.Join(s.runDir(run.ID), clean),
+				appendNewline(data),
+				0o600,
+			); err != nil {
+				return fmt.Errorf("write run file %q: %w", relativePath, err)
+			}
+			return nil
+		})
+	})
+}
+
+func (s *Store) updateExpectedLocked(
+	run domain.Run,
+	previous domain.WorkflowState,
+	eventType string,
+	expectedRevision uint64,
+	beforePersist func() error,
+) error {
+	current, err := s.loadRun(run.ID)
+	if err != nil {
+		return err
+	}
+	if current.Revision != expectedRevision {
+		return fmt.Errorf(
+			"%w: current revision %d does not match expected revision %d",
+			ErrRevisionConflict,
+			current.Revision,
+			expectedRevision,
+		)
+	}
+	if run.Revision != expectedRevision+1 {
+		return fmt.Errorf(
+			"new revision %d must follow expected revision %d",
+			run.Revision,
+			expectedRevision,
+		)
+	}
+	if beforePersist != nil {
+		if err := beforePersist(); err != nil {
+			return err
+		}
+	}
+	return s.persistUpdate(run, previous, eventType)
+}
+
+func (s *Store) persistUpdate(run domain.Run, previous domain.WorkflowState, eventType string) error {
 	state, err := json.MarshalIndent(run, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode run state: %w", err)
@@ -183,6 +276,20 @@ func (s *Store) Update(run domain.Run, previous domain.WorkflowState, eventType 
 		return fmt.Errorf("close event log: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) withRunStateLock(runID string, action func() error) error {
+	lockPath := filepath.Join(s.runDir(runID), "state.lock")
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("open state lock: %w", err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("acquire state lock: %w", err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	return action()
 }
 
 func (s *Store) runDir(runID string) string {

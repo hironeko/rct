@@ -1,8 +1,8 @@
 # Loop Engine アーキテクチャ設計書
 
-- 文書版: 0.7.1-draft
+- 文書版: 0.7.2-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.8.0-draft
+- 対応要件: `requirements.md` 0.8.3-draft
 - Draft拡張注記: Document Artifact移行方針とApproval Gate責務分離を含む。
   独立Review承認後にDraft表記を更新する
 - 実装言語: Go
@@ -842,6 +842,10 @@ persist expected_revision=41, new_revision=42
 
 Revisionが一致しない場合は多重更新として拒否する。
 
+State更新はRun固有の短時間OS File Lockを取得した後、Disk上のStateを再読込してExpected Revisionを
+比較し、StateのAtomic renameとEvent追記を同じCritical Section内で行う。Application Serviceが事前に
+同じRevisionを読んでいても、CASに敗れたWriterはStateを上書きできない。
+
 ### 12.3 Process Lock
 
 同一Runを操作するWriterは一つに限定する。
@@ -877,7 +881,17 @@ type VerificationResult struct {
 }
 ```
 
-MVPでは任意のShell文字列を直接実行せず、実行ファイルと引数配列で保持する。Pipe、redirect、`&&` などが必要な既存プロジェクトでは、利用者が明示的に `shell` 実行として承認したCommand Profileだけを許可する。
+MVPでは任意のShell文字列を直接実行せず、実行ファイルと引数配列で保持する。Executableは
+`go`、`cargo`、`npm`、`pnpm`、`yarn`、`bun`、`deno`、`pytest`、`ruff`、`mypy`相当の
+組込みBuild/Test Tool Allowlistへ制限し、SchemaとDomain Validationの両方で検査する。実際の
+Allowlist正本は`schemas/plan.schema.json`とDomainの一致をTestで保証する。
+
+Verification子ProcessのEnvironmentは`PATH`、`HOME`、一時Directory、Locale、Compiler/SDK Path、
+Tool Cache Pathなど機能上必要なKeyだけから再構成し、`CI=1`を付与する。Cloud Credential、API Token、
+Provider認証情報を含む親Process Environment全体は継承しない。
+
+Pipe、redirect、`&&`などShellを必要とするCommand Profile、および組込みAllowlist外Executableの追加は、
+Project Profile由来の根拠と利用者の明示承認を永続化する拡張が完成するまで拒否する。
 
 ## 14. Git Adapter
 
@@ -1115,7 +1129,8 @@ loop-engine answer [--run <id>] --question <id> --text "..."
 `approve`は現在のStateが`AWAITING_IMPLEMENTATION_APPROVAL`などの明示的な
 Authorization待ちであり、対象Artifact Hashに対するReviewerApprovalとGatePassが
 確定済みの場合だけ受理する。一つのApproval Recordは一回だけ消費し、対象Hashまたは
-State Revisionが変化した場合はstaleとして拒否する。
+State Revisionが変化した場合はstaleとして拒否する。`--revision`未指定時もServiceが読込んだ
+RevisionをExpected Revisionとして固定し、Storeの原子的CASを省略しない。
 
 `WAITING_FOR_HUMAN`は単一の承認待ち状態ではない。Review上限、Reviewer blocked、
 Verification失敗、Artifact競合などの停止理由を保持し、通常の`approve`でそれらを

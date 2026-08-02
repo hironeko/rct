@@ -3,9 +3,11 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -87,6 +89,62 @@ func TestApproveDoesNotOverrideReviewLimit(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "requires state") {
 		t.Fatalf("Approve() error = %v, want non-override rejection", err)
+	}
+}
+
+func TestApproveAllowsOnlyOneConcurrentRevisionTransition(t *testing.T) {
+	t.Parallel()
+
+	service, run := approvalFixture(t)
+	service.deps.Random = rand.Reader
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var ready sync.WaitGroup
+	ready.Add(2)
+	for range 2 {
+		go func() {
+			ready.Done()
+			<-start
+			_, err := service.Approve(context.Background(), ApproveOptions{
+				Project:          run.Project,
+				Approver:         "concurrent-reviewer",
+				ExpectedRevision: run.Revision,
+			})
+			results <- err
+		}()
+	}
+	ready.Wait()
+	close(start)
+
+	successes := 0
+	for range 2 {
+		if err := <-results; err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful approvals = %d, want 1", successes)
+	}
+	persisted, err := filesystem.New(run.Project).LoadCurrent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.State != domain.StateImplementationReady || persisted.Revision != run.Revision+1 {
+		t.Fatalf("persisted run = state %q revision %d", persisted.State, persisted.Revision)
+	}
+	approvalFiles, err := filepath.Glob(filepath.Join(
+		run.Project,
+		".loop-engine",
+		"runs",
+		run.ID,
+		"approvals",
+		"*.json",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(approvalFiles) != 1 {
+		t.Fatalf("approval files = %v, want exactly one", approvalFiles)
 	}
 }
 

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -46,6 +48,7 @@ func (g *implementationGateway) Execute(
 type implementationRunner struct {
 	verificationFailures int
 	verificationCalls    int
+	verificationRequests []loopruntime.ProcessRequest
 }
 
 func (r *implementationRunner) Run(
@@ -57,9 +60,9 @@ func (r *implementationRunner) Run(
 		switch {
 		case strings.HasPrefix(joined, "status "):
 			if r.verificationCalls == 0 {
-				return loopruntime.ProcessResult{Stdout: []byte("?? .loop-engine/runs/internal\n")}, nil
+				return loopruntime.ProcessResult{Stdout: []byte("?? .loop-engine/runs/internal\x00")}, nil
 			}
-			return loopruntime.ProcessResult{Stdout: []byte(" M app.go\n")}, nil
+			return loopruntime.ProcessResult{Stdout: []byte(" M app.go\x00")}, nil
 		case joined == "rev-parse HEAD":
 			return loopruntime.ProcessResult{Stdout: []byte("abc123\n")}, nil
 		case strings.HasPrefix(joined, "diff "):
@@ -68,6 +71,7 @@ func (r *implementationRunner) Run(
 	}
 	if request.Executable == "go" {
 		r.verificationCalls++
+		r.verificationRequests = append(r.verificationRequests, request)
 		if r.verificationCalls <= r.verificationFailures {
 			return loopruntime.ProcessResult{
 				Stderr:   []byte("test failed"),
@@ -77,6 +81,141 @@ func (r *implementationRunner) Run(
 		return loopruntime.ProcessResult{Stdout: []byte("ok\n")}, nil
 	}
 	return loopruntime.ProcessResult{}, fmt.Errorf("unexpected command: %s %v", request.Executable, request.Args)
+}
+
+func TestVerifyMilestoneRejectsExecutableBeforeSpawn(t *testing.T) {
+	t.Parallel()
+
+	runner := &implementationRunner{}
+	service := NewService(Dependencies{ProcessRunner: runner})
+	project := t.TempDir()
+	run := domain.Run{ID: "run_verify", Project: project, VerificationAttempts: 1}
+	if err := filesystem.New(project).Create(run, "Verify safely"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := service.verifyMilestone(
+		context.Background(),
+		filesystem.New(project),
+		run,
+		domain.Milestone{
+			ID: "M01",
+			VerificationCommands: []domain.CommandSpec{{
+				Executable: "curl",
+				Args:       []string{"https://example.invalid"},
+			}},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "is not allowed") {
+		t.Fatalf("verifyMilestone() error = %v, want allowlist rejection", err)
+	}
+	if runner.verificationCalls != 0 {
+		t.Fatalf("verification process calls = %d, want 0", runner.verificationCalls)
+	}
+}
+
+func TestVerifyMilestoneUsesMinimalEnvironment(t *testing.T) {
+	t.Parallel()
+
+	runner := &implementationRunner{}
+	service := NewService(Dependencies{
+		Getenv: func(key string) string {
+			values := map[string]string{
+				"PATH":                  "/usr/bin:/bin",
+				"HOME":                  "/tmp/verification-home",
+				"AWS_SECRET_ACCESS_KEY": "must-not-leak",
+			}
+			return values[key]
+		},
+		ProcessRunner: runner,
+	})
+	project := t.TempDir()
+	run := domain.Run{ID: "run_env", Project: project, VerificationAttempts: 1}
+	if err := filesystem.New(project).Create(run, "Verify environment"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := service.verifyMilestone(
+		context.Background(),
+		filesystem.New(project),
+		run,
+		domain.Milestone{
+			ID: "M01",
+			VerificationCommands: []domain.CommandSpec{{
+				Executable: "go",
+				Args:       []string{"test", "./..."},
+			}},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.verificationRequests) != 1 {
+		t.Fatalf("verification requests = %d, want 1", len(runner.verificationRequests))
+	}
+	environment := strings.Join(runner.verificationRequests[0].Env, "\n")
+	for _, expected := range []string{"PATH=/usr/bin:/bin", "HOME=/tmp/verification-home", "CI=1"} {
+		if !strings.Contains(environment, expected) {
+			t.Fatalf("verification environment missing %q: %q", expected, environment)
+		}
+	}
+	if strings.Contains(environment, "AWS_SECRET_ACCESS_KEY") || strings.Contains(environment, "must-not-leak") {
+		t.Fatalf("verification environment leaked ambient secret: %q", environment)
+	}
+}
+
+type reviewSubjectRunner struct {
+	status []byte
+}
+
+func (r reviewSubjectRunner) Run(
+	_ context.Context,
+	request loopruntime.ProcessRequest,
+) (loopruntime.ProcessResult, error) {
+	if request.Executable != "git" {
+		return loopruntime.ProcessResult{}, fmt.Errorf("unexpected executable %q", request.Executable)
+	}
+	if len(request.Args) > 0 && request.Args[0] == "status" {
+		return loopruntime.ProcessResult{Stdout: r.status}, nil
+	}
+	if len(request.Args) > 0 && request.Args[0] == "diff" {
+		return loopruntime.ProcessResult{Stdout: []byte("diff --git a/tracked b/tracked\n")}, nil
+	}
+	return loopruntime.ProcessResult{}, fmt.Errorf("unexpected git arguments %v", request.Args)
+}
+
+func TestBuildCodeReviewSubjectReadsUnquotedUntrackedPaths(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	files := map[string]string{
+		"日本語.md":              "Japanese filename content",
+		"file with space.txt": "Space filename content",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(project, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	status := []byte("?? 日本語.md\x00?? file with space.txt\x00")
+	service := NewService(Dependencies{ProcessRunner: reviewSubjectRunner{status: status}})
+	subject, err := service.buildCodeReviewSubject(
+		context.Background(),
+		domain.Run{Project: project, BaseCommit: "abc123"},
+		domain.Milestone{ID: "M01"},
+		[]byte(`{}`),
+		[]byte(`{}`),
+		[]byte(`{}`),
+		[]byte(`{}`),
+		[]byte(`{}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range files {
+		if !bytes.Contains(subject, []byte("Untracked file \""+name+"\"")) ||
+			!bytes.Contains(subject, []byte(content)) {
+			t.Fatalf("review subject does not include %q and its content:\n%s", name, subject)
+		}
+	}
 }
 
 func TestExecuteImplementationRemediatesVerificationAndReview(t *testing.T) {

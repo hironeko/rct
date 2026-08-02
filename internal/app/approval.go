@@ -103,23 +103,27 @@ func (s *Service) Approve(
 	if err != nil {
 		return run, fmt.Errorf("encode approval record: %w", err)
 	}
-	approvalPath, err := store.WriteRunFile(
+	approvalRelativePath := filepath.Join("approvals", record.ID+".json")
+	candidate := run
+	candidate.Approval = &record
+	candidate.ApprovalPath = filepath.ToSlash(filepath.Join(
+		".loop-engine",
+		"runs",
 		run.ID,
-		filepath.Join("approvals", record.ID+".json"),
-		encoded,
-	)
-	if err != nil {
-		return run, err
-	}
-	run.Approval = &record
-	run.ApprovalPath = approvalPath
-	if err := s.transition(
-		store,
-		&run,
-		domain.StateImplementationReady,
+		approvalRelativePath,
+	))
+	candidate.State = domain.StateImplementationReady
+	candidate.UpdatedAt = now
+	candidate.Revision++
+	if err := store.UpdateExpectedWithRunFile(
+		candidate,
+		run.State,
 		"HumanImplementationApprovalConsumed",
+		run.Revision,
+		approvalRelativePath,
+		encoded,
 	); err != nil {
 		return run, err
 	}
-	return run, nil
+	return candidate, nil
 }
