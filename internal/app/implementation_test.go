@@ -92,6 +92,7 @@ func TestExecuteImplementationRemediatesVerificationAndReview(t *testing.T) {
 		verdicts: []domain.Verdict{
 			domain.VerdictChangesRequested,
 			domain.VerdictApproved,
+			domain.VerdictApproved,
 		},
 	}
 	service, run := implementationFixture(t, gateway, runner)
@@ -106,30 +107,39 @@ func TestExecuteImplementationRemediatesVerificationAndReview(t *testing.T) {
 	if completed.State != domain.StateCompleted {
 		t.Fatalf("state = %q, want %q", completed.State, domain.StateCompleted)
 	}
-	if completed.ImplementationRound != 3 {
-		t.Fatalf("implementation round = %d, want 3", completed.ImplementationRound)
+	if completed.ImplementationRound != 1 {
+		t.Fatalf("final review round = %d, want 1", completed.ImplementationRound)
 	}
 	if len(completed.CompletedMilestones) != 1 || completed.CompletedMilestones[0] != "M01" {
 		t.Fatalf("completed milestones = %#v", completed.CompletedMilestones)
 	}
 	reviewerJobs := 0
+	codeReviewerJobs := 0
+	var lastImplementerPrompt []byte
 	for _, job := range gateway.jobs {
 		switch job.Role {
 		case domain.RoleImplementer:
+			lastImplementerPrompt = job.Prompt
 			if job.Access != providers.AccessWorkspaceWrite {
 				t.Fatalf("implementer access = %q", job.Access)
 			}
 		case domain.RoleReviewer:
 			reviewerJobs++
+			if promptField(job.Prompt, "Review type") == "code" {
+				codeReviewerJobs++
+			}
 			if job.Access != providers.AccessReadOnly {
 				t.Fatalf("reviewer access = %q", job.Access)
 			}
 		}
 	}
-	if reviewerJobs != 2 {
-		t.Fatalf("reviewer jobs = %d, want 2; failed verification must not be reviewed", reviewerJobs)
+	if reviewerJobs != 3 || codeReviewerJobs != 2 {
+		t.Fatalf(
+			"reviewer jobs = %d (code=%d), want 3 (code=2); failed verification must not be reviewed",
+			reviewerJobs,
+			codeReviewerJobs,
+		)
 	}
-	lastImplementerPrompt := gateway.jobs[len(gateway.jobs)-2].Prompt
 	if !bytes.Contains(lastImplementerPrompt, []byte("Required code review feedback")) {
 		t.Fatal("review remediation prompt does not contain required feedback")
 	}
@@ -261,6 +271,10 @@ func promptField(prompt []byte, name string) string {
 }
 
 func codeReviewOutput(prompt []byte, verdict domain.Verdict) []byte {
+	reviewType := promptField(prompt, "Review type")
+	if reviewType == "" {
+		reviewType = "code"
+	}
 	findings := []any{}
 	if verdict == domain.VerdictChangesRequested {
 		findings = append(findings, map[string]any{
@@ -273,7 +287,7 @@ func codeReviewOutput(prompt []byte, verdict domain.Verdict) []byte {
 		"schema_version": "1.0",
 		"run_id":         promptField(prompt, "Run ID"),
 		"job_id":         promptField(prompt, "Job ID"),
-		"review_type":    "code",
+		"review_type":    reviewType,
 		"subject": map[string]string{
 			"path":       promptField(prompt, "Subject path"),
 			"sha256":     promptField(prompt, "Subject SHA-256"),

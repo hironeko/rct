@@ -1,6 +1,6 @@
 # Loop Engine アーキテクチャ設計書
 
-- 文書版: 0.7.0-draft
+- 文書版: 0.7.1-draft
 - ステータス: Draft
 - 対応要件: `requirements.md` 0.8.0-draft
 - Draft拡張注記: Document Artifact移行方針とApproval Gate責務分離を含む。
@@ -1065,7 +1065,8 @@ loop-engine implement --project <path> \
 ```
 
 `implement`はClean Worktreeと不変のPlan Hashを確認し、MilestoneごとにImplementer、Verification、
-独立Code Review、必要なFixを有限回実行する。Verification失敗時はCode Reviewへ進まない。
+独立Code Review、必要なFixを有限回実行する。Verification失敗時はCode Reviewへ進まない。全Milestone
+承認後は全Verificationを再実行し、累積DiffのFinal Reviewと必要な有限修正を通過してから完了する。
 
 ### 18.2 Status
 

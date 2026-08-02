@@ -50,6 +50,8 @@ const (
 	StateMilestoneReview         WorkflowState = "MILESTONE_REVIEW"
 	StateMilestoneFix            WorkflowState = "MILESTONE_FIX"
 	StateMilestoneApproved       WorkflowState = "MILESTONE_APPROVED"
+	StateFinalVerification       WorkflowState = "FINAL_VERIFICATION"
+	StateFinalReview             WorkflowState = "FINAL_REVIEW"
 	StateCompleted               WorkflowState = "COMPLETED"
 	StateWaitingForHuman         WorkflowState = "WAITING_FOR_HUMAN"
 	StateBlocked                 WorkflowState = "BLOCKED"

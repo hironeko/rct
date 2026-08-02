@@ -1,6 +1,6 @@
 # Loop Engine 要件定義書
 
-- 文書版: 0.8.0-draft
+- 文書版: 0.8.1-draft
 - ステータス: Draft（React/TypeScript UI方針追加、独立レビュー待ち）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
@@ -1719,6 +1719,13 @@ Verification失敗時はCode Reviewerを起動せず、失敗記録をImplemente
 Code Reviewの`changes_requested`ではReview結果をImplementerへ渡し、再Verification後に新しい
 Diff Subject Hashで再Reviewする。全MilestoneがVerification成功かつ`approved`になった場合だけ
 Runを`COMPLETED`へ遷移する。
+
+### AC-052
+
+全Milestone承認後、Plan内の全Verification CommandをFinal Verificationとして再実行し、累積Git Diff、
+Requirements、Architecture、Plan、検証結果を`review_type: final`で独立Reviewする。Final Reviewの
+`changes_requested`はImplementerによる有限修正とFinal Verification/Reviewの再実行へ戻し、Final
+Verification成功かつFinal Review `approved`の場合だけ`COMPLETED`へ遷移する。
 
 ## 16. 初期リスク
 

@@ -248,6 +248,7 @@ func (s *Service) ExecuteImplementation(
 				}
 				continue
 			}
+			previousVerification = nil
 			if err := s.ensureBaseCommitUnchanged(ctx, run); err != nil {
 				return s.failRun(store, run, err)
 			}
@@ -297,6 +298,7 @@ func (s *Service) ExecuteImplementation(
 					run,
 					milestone,
 					reviewSubject,
+					"code",
 					reviewerJobID,
 					subjectPath,
 					subjectHash,
@@ -395,12 +397,20 @@ func (s *Service) ExecuteImplementation(
 		}
 	}
 
-	run.CurrentMilestoneID = ""
-	run.WaitingReason = ""
-	if err := s.transition(store, &run, domain.StateCompleted, "RunCompleted"); err != nil {
-		return run, err
-	}
-	return run, nil
+	return s.executeFinalGate(
+		ctx,
+		store,
+		run,
+		plan,
+		requirements,
+		architecture,
+		planBytes,
+		implementationSchema,
+		reviewSchema,
+		implementerInstructions,
+		reviewerInstructions,
+		options,
+	)
 }
 
 func validateImplementationSeparation(run domain.Run) error {
@@ -416,6 +426,250 @@ func validateImplementationSeparation(run domain.Run) error {
 		return fmt.Errorf("%w: implementer and reviewer must use different providers and sessions", domain.ErrRoleAssignmentConflict)
 	}
 	return nil
+}
+
+func (s *Service) executeFinalGate(
+	ctx context.Context,
+	store *filesystem.Store,
+	run domain.Run,
+	plan domain.ImplementationPlan,
+	requirements, architecture, planBytes, implementationSchema, reviewSchema []byte,
+	implementerInstructions, reviewerInstructions string,
+	options ImplementationOptions,
+) (domain.Run, error) {
+	var commands []domain.CommandSpec
+	for _, milestone := range plan.Milestones {
+		commands = append(commands, milestone.VerificationCommands...)
+	}
+	finalMilestone := domain.Milestone{
+		ID:                   "FINAL",
+		Objective:            "Verify and independently review the complete approved implementation",
+		Scope:                []string{"All approved milestones and the cumulative Git diff"},
+		AcceptanceCriteria:   []string{"All approved verification commands pass", "Final reviewer approves"},
+		VerificationCommands: commands,
+		DoneWhen:             []string{"Run reaches COMPLETED"},
+	}
+	finalSummary := []byte(`{"schema_version":"1.0","milestone_id":"FINAL","summary":"All approved milestones completed"}`)
+
+	for round := 1; round <= options.MaxReviewRounds; round++ {
+		run.CurrentMilestoneID = "FINAL"
+		run.ImplementationRound = round
+		run.VerificationAttempts = round
+		if err := s.transition(
+			store,
+			&run,
+			domain.StateFinalVerification,
+			"FinalVerificationStarted",
+		); err != nil {
+			return run, err
+		}
+		verification, verificationBytes, err := s.verifyMilestone(
+			ctx,
+			store,
+			run,
+			finalMilestone,
+		)
+		if err != nil {
+			return s.failRun(store, run, err)
+		}
+		verificationPath, err := store.WriteRunFile(
+			run.ID,
+			fmt.Sprintf("verification/final/attempt-%03d.json", round),
+			verificationBytes,
+		)
+		if err != nil {
+			return s.failRun(store, run, err)
+		}
+		run.VerificationPath = verificationPath
+		if !verification.Passed {
+			run.WaitingReason = "final verification failed"
+			if err := s.transition(
+				store,
+				&run,
+				domain.StateWaitingForHuman,
+				"FinalVerificationFailed",
+			); err != nil {
+				return run, err
+			}
+			return run, nil
+		}
+		if err := s.ensureBaseCommitUnchanged(ctx, run); err != nil {
+			return s.failRun(store, run, err)
+		}
+		subject, err := s.buildCodeReviewSubject(
+			ctx,
+			run,
+			finalMilestone,
+			requirements,
+			architecture,
+			planBytes,
+			finalSummary,
+			verificationBytes,
+		)
+		if err != nil {
+			return s.failRun(store, run, err)
+		}
+		subjectPath, err := store.WriteRunFile(
+			run.ID,
+			fmt.Sprintf("review-subjects/final/v%03d.md", round),
+			subject,
+		)
+		if err != nil {
+			return s.failRun(store, run, err)
+		}
+		if err := s.transition(
+			store,
+			&run,
+			domain.StateFinalReview,
+			"FinalReviewStarted",
+		); err != nil {
+			return run, err
+		}
+
+		reviewerJobID := fmt.Sprintf("final-r%02d-reviewer", round)
+		subjectHash := sha256Hex(withTrailingNewline(subject))
+		reviewerResult, jobErr := s.executeAgentJob(ctx, providers.Job{
+			ID:       reviewerJobID,
+			Provider: run.Roles[domain.RoleReviewer].Provider,
+			Role:     domain.RoleReviewer,
+			Project:  run.Project,
+			JobDir: filepath.Join(
+				store.RunDir(run.ID), "jobs", reviewerJobID,
+			),
+			Prompt: []byte(buildCodeReviewPrompt(
+				reviewerInstructions,
+				run,
+				finalMilestone,
+				subject,
+				"final",
+				reviewerJobID,
+				subjectPath,
+				subjectHash,
+			)),
+			Schema: reviewSchema,
+			Access: providers.AccessReadOnly,
+		})
+		if jobErr != nil {
+			return s.failRun(store, run, jobErr)
+		}
+		currentSubject, err := s.buildCodeReviewSubject(
+			ctx,
+			run,
+			finalMilestone,
+			requirements,
+			architecture,
+			planBytes,
+			finalSummary,
+			verificationBytes,
+		)
+		if err != nil {
+			return s.failRun(store, run, err)
+		}
+		if sha256Hex(withTrailingNewline(currentSubject)) != subjectHash {
+			return s.failRun(store, run, errors.New("code changed during final review"))
+		}
+		decision, err := domain.ParseReviewDecision(reviewerResult.StructuredOutput)
+		if err != nil {
+			return s.failRun(store, run, err)
+		}
+		if err := evaluateReviewGate(decision, reviewGateExpectation{
+			RunID:       run.ID,
+			JobID:       reviewerJobID,
+			ReviewType:  "final",
+			SubjectPath: subjectPath,
+			SubjectHash: subjectHash,
+			MediaType:   "text/markdown",
+		}); err != nil {
+			return s.failRun(store, run, err)
+		}
+		reviewPath, err := store.WriteRunFile(
+			run.ID,
+			fmt.Sprintf("reviews/final-v%03d.json", round),
+			reviewerResult.StructuredOutput,
+		)
+		if err != nil {
+			return s.failRun(store, run, err)
+		}
+		run.CodeReviewPath = reviewPath
+		run.LastVerdict = decision.Verdict
+
+		switch decision.Verdict {
+		case domain.VerdictApproved:
+			run.CurrentMilestoneID = ""
+			run.WaitingReason = ""
+			if err := s.transition(store, &run, domain.StateCompleted, "RunCompleted"); err != nil {
+				return run, err
+			}
+			return run, nil
+		case domain.VerdictBlocked:
+			run.WaitingReason = "final review blocked"
+			if err := s.transition(store, &run, domain.StateBlocked, "FinalReviewBlocked"); err != nil {
+				return run, err
+			}
+			return run, nil
+		case domain.VerdictChangesRequested:
+			if round == options.MaxReviewRounds {
+				run.WaitingReason = "final review limit reached"
+				if err := s.transition(
+					store,
+					&run,
+					domain.StateWaitingForHuman,
+					"FinalReviewLimitReached",
+				); err != nil {
+					return run, err
+				}
+				return run, nil
+			}
+		}
+
+		lastMilestone := plan.Milestones[len(plan.Milestones)-1]
+		lastMilestone.Objective = "Resolve required final review findings across the approved implementation"
+		if err := s.transition(store, &run, domain.StateMilestoneFix, "FinalReviewFixStarted"); err != nil {
+			return run, err
+		}
+		implementerJobID := fmt.Sprintf("final-r%02d-implementer", round+1)
+		implementationResult, jobErr := s.executeAgentJob(ctx, providers.Job{
+			ID:       implementerJobID,
+			Provider: run.Roles[domain.RoleImplementer].Provider,
+			Role:     domain.RoleImplementer,
+			Project:  run.Project,
+			JobDir: filepath.Join(
+				store.RunDir(run.ID), "jobs", implementerJobID,
+			),
+			Prompt: []byte(buildImplementationPrompt(
+				implementerInstructions,
+				run,
+				lastMilestone,
+				requirements,
+				architecture,
+				planBytes,
+				nil,
+				reviewerResult.StructuredOutput,
+			)),
+			Schema: implementationSchema,
+			Access: providers.AccessWorkspaceWrite,
+		})
+		if jobErr != nil {
+			return s.failRun(store, run, jobErr)
+		}
+		if err := validateImplementationResult(implementationResult.StructuredOutput, lastMilestone.ID); err != nil {
+			return s.failRun(store, run, err)
+		}
+		implementationPath, err := store.WriteRunFile(
+			run.ID,
+			fmt.Sprintf("artifacts/implementation/final/v%03d.json", round+1),
+			implementationResult.StructuredOutput,
+		)
+		if err != nil {
+			return s.failRun(store, run, err)
+		}
+		run.ImplementationPath = implementationPath
+		finalSummary = implementationResult.StructuredOutput
+		if err := s.ensureBaseCommitUnchanged(ctx, run); err != nil {
+			return s.failRun(store, run, err)
+		}
+	}
+	return s.failRun(store, run, errors.New("final review loop ended without a terminal state"))
 }
 
 func ensureMilestoneDependencies(milestone domain.Milestone, completed []string) error {
@@ -699,15 +953,17 @@ func buildCodeReviewPrompt(
 	run domain.Run,
 	milestone domain.Milestone,
 	subject []byte,
+	reviewType string,
 	jobID, subjectPath, subjectHash string,
 ) string {
 	return fmt.Sprintf(
-		"%s\n\n# Job\n\nRun ID: %s\nJob ID: %s\nReview type: code\nMilestone: %s\n"+
+		"%s\n\n# Job\n\nRun ID: %s\nJob ID: %s\nReview type: %s\nMilestone: %s\n"+
 			"Subject path: %s\nSubject SHA-256: %s\nSubject media type: text/markdown\n\n%s\n\n"+
 			"Copy the identifiers and subject fields exactly. Return only the JSON object required by the supplied schema.",
 		instructions,
 		run.ID,
 		jobID,
+		reviewType,
 		milestone.ID,
 		subjectPath,
 		subjectHash,

@@ -93,7 +93,9 @@ bin/loop-engine implement \
 ```
 
 Implementation starts only from a clean Git worktree. Each milestone is implemented, verified with the
-approved executable-and-argument arrays, independently code-reviewed, and remediated when required.
+approved executable-and-argument arrays, independently code-reviewed, and remediated when required. After all
+milestones pass, Loop Engine reruns the complete verification set and performs a final independent review of the
+cumulative diff before marking the run completed.
 
 To start with Claude Code as the Designer and Codex as the Reviewer:
 
