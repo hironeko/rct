@@ -140,6 +140,8 @@ The current product and architecture documents are maintained in Japanese:
 - [Document output implementation plan](docs/implementation-plan-document-output.md)
 - [Shared agent instructions](AGENTS.md)
 - [Claude Code instructions](CLAUDE.md)
+- [Shared agent instructions (Japanese)](docs/ja/AGENTS.md)
+- [Claude Code instructions (Japanese)](docs/ja/CLAUDE.md)
 
 ## Development
 

@@ -1,50 +1,50 @@
 # Loop Engine project instructions
 
-このファイルは、このリポジトリで作業するCodex、Claude Codeおよび互換Agent向けの共通永続指示である。
+This file contains persistent shared instructions for Codex, Claude Code, and compatible agents working in this repository. The Japanese reference version is available at `docs/ja/AGENTS.md`.
 
 ## 1. Read first
 
-変更前に、タスクへ関係する範囲として最低限次を読むこと。
+Before making changes, read at least the task-relevant portions of:
 
 1. `docs/requirements.md`
 2. `docs/architecture.md`
-3. この `AGENTS.md`
+3. this `AGENTS.md`
 
-設計とコードが矛盾する場合、推測で設計を変更せず、矛盾点を報告すること。合意された仕様変更は、コードと同じ変更内で文書へ反映すること。
+If the design and code conflict, do not silently change the design based on an assumption. Report the conflict. Reflect an agreed specification change in the documentation within the same change as the code.
 
 ## 2. Product roles
 
-Loop Engineの標準ロールは次のとおりとする。RoleとProviderは固定対応ではない。
+Loop Engine defines the following standard roles. Roles are not permanently bound to providers.
 
-- Designer: 要望整理、要件定義、設計、実装計画
-- Implementer: マイルストーン実装、検証、レビュー対応
-- Reviewer: 要件、設計、計画、コード、検証結果の独立レビュー
-- Loop Engine Core: 状態遷移、Job管理、成果物管理、停止条件、再開
-- 利用者: 概略要望、Provider選択、必要な判断、承認、最終受け入れ
+- Designer: request clarification, requirements, architecture, and implementation planning
+- Implementer: milestone implementation, verification, and review remediation
+- Reviewer: independent review of requirements, architecture, plans, code, and verification results
+- Loop Engine Core: state transitions, job coordination, artifact management, stopping conditions, and recovery
+- User: rough request, provider selection, required decisions, approvals, and final acceptance
 
-CodexとClaudeを直接相互呼び出しさせない。すべての工程遷移はLoop Engine Coreが管理する。
+Do not make Codex and Claude call each other directly. Loop Engine Core must control every workflow transition.
 
-要望を最初に受け取るDesigner Providerは利用者が選択できる。Designer、Implementer、Reviewerは必ず別Role ID・別Agent sessionとする。同一ProviderがDesignerとImplementerを担う場合もSessionや会話Contextを共有しない。Reviewer ProviderはDesignerおよびImplementer Providerと異ならなければならない。
+The user may choose the Designer provider that receives the initial request. Designer, Implementer, and Reviewer must always have different role IDs and agent sessions. Even when one provider performs both Designer and Implementer roles, those roles must not share sessions or conversation context. The Reviewer provider must differ from both the Designer and Implementer providers.
 
 ## 3. Architectural boundaries
 
-次の境界を維持すること。
+Maintain these boundaries:
 
-- DomainとWorkflowはHerdr、tmux、各AI CLIへ依存しない
-- AI固有処理はProvider Adapterへ置く
-- Pane、Session、Process固有処理はRuntime Backendへ置く
-- Git操作はVCS Adapterへ置く
-- プロジェクト検出はProject Inspectorへ置く
-- 検証コマンド実行はVerification Runnerへ置く
-- ファイル永続化はArtifact StoreとState Storeへ置く
+- Domain and Workflow do not depend on Herdr, tmux, or a specific AI CLI.
+- Provider-specific behavior belongs in Provider Adapters.
+- Pane, session, and process behavior belongs in Runtime Backends.
+- Git operations belong in the VCS Adapter.
+- Project detection belongs in the Project Inspector.
+- Verification command execution belongs in the Verification Runner.
+- File persistence belongs in the Artifact Store and State Store.
 
-CoreからHerdrやtmuxのコマンドを直接呼び出さない。
+Core must not invoke Herdr or tmux commands directly.
 
 ## 4. Source of truth
 
-ターミナル出力、Agentの自然言語による完了宣言、画面上のstatusを正式な完了条件にしない。
+Do not treat terminal output, an agent's natural-language completion claim, or a screen status label as an authoritative completion condition.
 
-正式な状態は次で確定する。
+Authoritative state is established by:
 
 - Run ID
 - Job ID
@@ -55,87 +55,87 @@ CoreからHerdrやtmuxのコマンドを直接呼び出さない。
 - Reviewer Verdict
 - Workflow State
 
-Agent sessionは失われる可能性がある一時的な実行資源として扱う。承認済み成果物から新しいsessionで再開できることを維持する。
+Treat agent sessions as replaceable execution resources that may be lost. Preserve the ability to resume in a new session from approved artifacts.
 
 ## 5. Workflow rules
 
-- 一度に一つのマイルストーンだけを実装する
-- Requirements、Plan、Implementationの各レビューに上限を設ける
-- 上限到達時に自動承認しない
-- `blocked` を `approved` として扱わない
-- 古いArtifact Hashに対するReviewを拒否する
-- Verification失敗中にCode Reviewへ進まない
-- Reviewer承認だけでなく、決定的なGate条件も確認する
-- ProducerとReviewerのProviderおよびSession分離を確認する
-- Terminal Stateから暗黙に再開しない
+- Implement only one milestone at a time.
+- Limit Requirements, Plan, and Implementation review rounds.
+- Never auto-approve after reaching a review limit.
+- Never interpret `blocked` as `approved`.
+- Reject reviews for stale artifact hashes.
+- Do not enter Code Review while Verification is failing.
+- Check deterministic gate conditions in addition to the Reviewer verdict.
+- Verify Producer and Reviewer provider and session separation.
+- Do not resume implicitly from terminal state.
 
-状態遷移を追加または変更する場合、遷移テスト、不変条件、復旧経路を同時に更新すること。
+When adding or changing a state transition, update transition tests, invariants, and the recovery path in the same change.
 
 ## 6. Safety
 
-既存の利用者変更を保持すること。明示的な依頼なしに次を実行しない。
+Preserve existing user changes. Do not perform the following without an explicit request:
 
 - `git reset --hard`
 - `git clean`
 - force push
-- ブランチ削除
-- 未追跡ファイルの一括削除
-- 自動commit
-- 自動merge
-- 本番デプロイ
-- 秘密情報の変更または出力
+- branch deletion
+- bulk deletion of untracked files
+- automatic commit
+- automatic merge
+- production deployment
+- secret modification or disclosure
 
-実装工程では、デフォルトでClean Worktreeを要求する。Dirty Worktree対応を実装する場合は、開始時の差分をBaselineとして保存し、既存変更をLoop Engineの成果として扱わない。
+Require a clean worktree by default before an implementation phase. If dirty-worktree support is introduced, capture the starting diff as a baseline and never treat pre-existing changes as Loop Engine output.
 
 ## 7. Process execution
 
-- Shell文字列の連結より、実行ファイルと引数配列を使用する
-- `shell=false` 相当を標準にする
-- Working Directoryを明示する
-- TimeoutとContext cancellationを伝播する
-- stdoutとstderrをJob単位でストリーム保存する
-- 任意コマンドは承認済みCommand Profileからのみ実行する
-- Signal処理と子Processの終了をテストする
+- Prefer an executable plus argument array over concatenated shell strings.
+- Use behavior equivalent to `shell=false` by default.
+- Set the working directory explicitly.
+- Propagate timeouts and context cancellation.
+- Stream stdout and stderr into job-specific storage.
+- Run arbitrary commands only through an approved Command Profile.
+- Test signal handling and child-process termination.
 
-Shellが必要なプロジェクトコマンドは、明示的にShell実行として設定・承認された場合だけ許可する。
+Allow a project command that requires a shell only when shell execution has been explicitly configured and approved.
 
 ## 8. Reviewer separation
 
-Reviewer Roleへ割り当てられたProviderは、CodexかClaude Codeかに関係なく原則として次だけを行う。
+Regardless of whether Codex or Claude Code is assigned, the Reviewer role should normally perform only:
 
-- プロジェクト、成果物、差分、検証結果の読取
-- 所定SchemaのReview結果作成
+- read access to the project, artifacts, diffs, and verification results
+- creation of a review result conforming to the required schema
 
-ReviewerによるSource変更、Git変更、デプロイを許可しない。CLI側で完全に強制できない場合は、Permission設定、書込範囲、Job前後のGit差分検査を組み合わせる。
+Do not allow the Reviewer to modify source, Git state, or deployments. If a provider CLI cannot enforce read-only access completely, combine permission settings, restricted writable paths, and Git-diff inspection before and after the job.
 
 ## 9. Persistence
 
-- State更新は原子的に行う
-- Event Logは追記型にする
-- Artifactを上書きせず版管理する
-- State Revisionで多重更新を検出する
-- 同一RunへのWriterをLockで一つに制限する
-- 復旧時に未確定Artifactを自動採用しない
+- Update state atomically.
+- Keep the Event Log append-only.
+- Version artifacts instead of overwriting them.
+- Detect concurrent updates with the State Revision.
+- Allow only one writer per Run through locking.
+- Do not automatically adopt an uncommitted artifact during recovery.
 
 ## 10. Tests
 
-新しいDomainまたはWorkflow機能にはUnit Testを追加すること。
+Add unit tests for new Domain or Workflow behavior.
 
-Adapterを変更する場合はContract Testを追加すること。通常のCIでは実AIを必要としないFake ProviderとFake Backendを使用する。
+Add contract tests when changing an Adapter. Normal CI should use Fake Providers and Fake Backends without requiring live AI services.
 
-少なくとも次のケースを維持すること。
+Maintain coverage for at least:
 
-- 一回のReviewで承認
-- 複数回の修正後に承認
-- Review上限到達
-- 古いReviewの拒否
-- Schema不正
-- Verification失敗からの修正
+- approval after one review
+- approval after multiple revisions
+- review-limit exhaustion
+- stale-review rejection
+- invalid schemas
+- remediation after verification failure
 - Reviewer blocked
-- 異常終了後のresume
-- Herdrからtmux、Directへのauto fallback
+- resume after abnormal termination
+- automatic fallback from Herdr to tmux and Direct
 
-標準コマンド:
+Standard commands:
 
 ```text
 gofmt -w cmd internal
@@ -144,32 +144,32 @@ go vet ./...
 go build ./cmd/loop-engine
 ```
 
-Sandbox環境で標準Go Cacheへ書き込めない場合は、書き込み可能な一時ディレクトリを `GOCACHE` に指定すること。
+If a sandbox cannot write to the default Go cache, set `GOCACHE` to a writable temporary directory.
 
 ## 11. Documentation
 
-次の変更では文書更新を必須とする。
+Documentation updates are required when changing:
 
-- Workflow Stateまたは遷移
-- ArtifactまたはReview Schema
-- CLI commandまたは設定
-- Provider Adapterの契約
-- Runtime Backendの契約
-- Permissionまたは安全境界
-- 配布方法
+- Workflow States or transitions
+- Artifact or Review Schemas
+- CLI commands or configuration
+- Provider Adapter contracts
+- Runtime Backend contracts
+- permissions or safety boundaries
+- distribution
 
 ## 12. Current scope
 
-MVPは次へ限定する。
+The MVP is limited to:
 
 - macOS arm64
 - Linux amd64
-- CodexまたはClaude CodeからDesigner Providerを選択
-- 選択したProviderを別SessionのDesigner / Implementerへ割当
-- もう一方のProviderを独立Reviewerへ割当
-- Herdr、tmux、Direct Backend
-- Supervised、Autonomous、Design-only
-- File-based Artifact、State、Event Log
-- 中断と再開
+- selecting Codex or Claude Code as the Designer provider
+- assigning the selected provider to separate Designer and Implementer sessions
+- assigning the other provider as the independent Reviewer
+- Herdr, tmux, and Direct Backends
+- Supervised, Autonomous, and Design-only modes
+- file-based Artifacts, State, and Event Log
+- interruption and resume
 
-追加Provider、Web UI、Pull Request連携、デプロイはMVP外とする。
+Additional providers, Web UI, Pull Request integration, and deployment are outside the MVP.
