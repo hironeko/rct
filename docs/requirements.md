@@ -1,7 +1,7 @@
 # Loop Engine 要件定義書
 
-- 文書版: 0.8.1-draft
-- ステータス: Draft（React/TypeScript UI方針追加、独立レビュー待ち）
+- 文書版: 0.8.2-draft
+- ステータス: Draft（Core Loop実装済み、Local Browser Control Plane設計Review approved）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
 - 実装言語: Go
@@ -1097,7 +1097,8 @@ Session Tokenを生成すること。Loopback以外へのBindは、危険性を�
 検証し、Browserから送られた絶対Pathを無条件に信頼してはならない。
 
 Directory選択UIはServerが返したRoot IDと相対Pathを使用し、OS全体のFile Systemを
-列挙してはならない。
+列挙してはならない。`.git`、`.hg`、`.svn`など既知のVCS Metadata DirectoryはDefaultの
+Directory一覧から除外し、New request/New applicationの保存先として選択させないこと。
 
 #### FR-194
 
@@ -1136,7 +1137,8 @@ Titleと本文を必須とし、入力サイズ、文字Encoding、Project slug�
 
 Request MarkdownとIntake Metadataは一時Fileへの書込、Flush、Atomic renameにより保存する
 こと。Intake ID、作成時刻、Request kind、Workspace Root ID、相対Path、Request SHA-256、
-選択したRun Optionを`.loop-engine/intakes/<intake-id>/intake.json`へ保存すること。
+Idempotency Key、State Revision、選択したRun Optionを
+`.loop-engine/intakes/<intake-id>/intake.json`へ保存すること。
 
 #### FR-198
 
@@ -1147,8 +1149,12 @@ Web専用Workflowを複製したりしてはならない。
 
 #### FR-199
 
-一回の`Save and start` Requestから作成できるRunは一つだけとする。Idempotency Keyと
-Intake State RevisionでBrowserの二重送信、再読込、Network retryによる重複Runを防ぐこと。
+一つのIntakeから作成できるRunは一つだけとする。主たる重複防止は、ServerがExpected Revisionを
+照合し、Intake Stateを`DRAFT`から`STARTING`へCompare-and-Swapで原子的に遷移させることで行う。
+異なるIdempotency Keyを持つ同時Start RequestでもCASに成功した一件だけがRunを作成できること。
+
+Idempotency Keyは同一HTTP Requestの再送、Browser再読込、Network retryに対して最初に確定した
+Intake ID、Run ID、Responseを再利用する補助機構とし、CASの代替として扱わないこと。
 
 #### FR-200
 
@@ -1726,6 +1732,17 @@ Runを`COMPLETED`へ遷移する。
 Requirements、Architecture、Plan、検証結果を`review_type: final`で独立Reviewする。Final Reviewの
 `changes_requested`はImplementerによる有限修正とFinal Verification/Reviewの再実行へ戻し、Final
 Verification成功かつFinal Review `approved`の場合だけ`COMPLETED`へ遷移する。
+
+### AC-053
+
+同じ`DRAFT` IntakeとExpected Revisionに対し、異なるIdempotency Keyを持つ二つのStart Requestを
+同時実行した場合、`DRAFT -> STARTING`のCASに成功した一件だけがRunを作成し、もう一件は確定済み
+Intake/Runを返すかRevision Conflictとして失敗する。Run IDは二つ作成されない。
+
+### AC-054
+
+Workspace Directory一覧は`.git`、`.hg`、`.svn`を返さず、相対Pathを直接指定してもそれらの配下へ
+New requestまたはNew applicationを作成しない。
 
 ## 16. 初期リスク
 

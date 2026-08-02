@@ -1,9 +1,9 @@
 # Local Browser Control Plane 実装計画
 
-- 文書版: 0.2.0-draft
+- 文書版: 0.2.1-draft
 - 作成日: 2026-08-02
-- 対応設計: `docs/design/local-control-plane.md` 0.2.0-draft
-- 状態: Claude Plan Review待ち
+- 対応設計: `docs/design/local-control-plane.md` 0.2.1-draft
+- 状態: Claude Review approved、RC-031〜RC-035反映済み
 
 ## 1. 実装原則
 
@@ -98,6 +98,7 @@ OS levelで拒否する。
 - no-follow component traversal
 - macOS/Linux Contract Test
 - TOCTOU差替えTest
+- VCS Metadata DirectoryのDefault非表示・直接指定拒否
 
 #### Non-scope
 
@@ -146,6 +147,8 @@ Browser入力をRunより先に監査可能なMarkdown RequestとIntake Metadata
 - Atomic Request/Metadata write
 - Intake Event Log
 - Idempotency Key persistence
+- Expected Revision付き`DRAFT -> STARTING` CAS
+- 異なるIdempotency Keyによる同一Intake同時Start Test
 - New application Directory conflict behavior
 
 #### Non-scope
@@ -169,6 +172,7 @@ internal/intake/*_test.go
 - 同じ正規化入力から同じMarkdown bytesとSHA-256を得る
 - `Save draft`でAgent/Runを開始しない
 - 同一Idempotency Keyの再送でFileを増やさない
+- 異なるIdempotency Keyの同時StartでもRunを一つだけ作る
 - 競合PathとSymlinkを変更しない
 - Metadata modeが`0600`、Request modeが`0644`
 
@@ -359,6 +363,7 @@ internal/controlplane/ui/
 #### Acceptance
 
 - Save and startの二重送信でRunが一つだけ作られる
+- 異なるIdempotency KeyでもIntake CASによりRunが一つだけ作られる
 - BrowserとCLI statusが同じRun ID/Stateを返す
 - Browser disconnectでRunをCancelしない
 - Server restart後にRun一覧を再構成できる
@@ -447,9 +452,19 @@ Reviewer verdictが`approved`かつGate Evaluatorが対象Hashと必須検証を
 
 ## 5. Plan承認条件
 
+| Milestone | Acceptance Criteria |
+|---|---|
+| L0 | AC-036, AC-042 |
+| L1 | AC-034, AC-037, AC-054 |
+| L2 | AC-035, AC-037, AC-038, AC-053 |
+| L3 | AC-039, AC-040, AC-043 |
+| L4 | AC-035, AC-037, AC-040, AC-044〜AC-048 |
+| L5 | AC-036, AC-038, AC-041, AC-042, AC-053 |
+| L6 | AC-040, AC-043, AC-046, AC-047 |
+
 - File System safetyをUIより先に実装する順序である
 - CLI/Coreを複製しない
 - 各Milestoneが独立してTest/Review/Rollback可能である
 - Browser閉鎖とServer再起動のOwnershipが明確である
 - Remote公開を初期Scopeに含めない
-- AC-034〜AC-048が少なくとも一つのMilestoneへ追跡できる
+- Local Control PlaneのAC-034〜AC-048、AC-053、AC-054が少なくとも一つのMilestoneへ追跡できる

@@ -1,10 +1,10 @@
 # Local Browser Control Plane 詳細設計
 
-- 文書版: 0.2.0-draft
+- 文書版: 0.2.1-draft
 - 作成日: 2026-08-02
-- 対応要件: `docs/requirements.md` 0.6.1-draft FR-190〜FR-214
+- 対応要件: `docs/requirements.md` 0.8.2-draft FR-190〜FR-214
 - 対応ADR: `docs/architecture.md` ADR-010
-- 状態: Claude Architecture Review待ち
+- 状態: Claude Review approved、RC-031〜RC-035反映済み
 
 ## 1. 目的
 
@@ -142,6 +142,7 @@ Browser
 
 - 許可Rootの登録とStable Root ID生成
 - Root配下のDirectory Entry列挙
+- `.git`、`.hg`、`.svn`など既知VCS Metadata DirectoryのDefault非表示・選択拒否
 - Root ID + Relative Pathの安全な解決
 - Directory作成前の競合検査
 - Symbolic Link / traversal / Root escape拒否
@@ -223,7 +224,12 @@ DRAFT -> STARTING -> STARTED
   -> CONFLICT
 ```
 
-同一Idempotency Keyで`STARTED`済みなら、既存IntakeとRun IDを返す。
+Run開始時はExpected Revisionを必須とし、永続Store上で`DRAFT -> STARTING`をCompare-and-Swapする。
+CAS成功者だけがRunを作成し、Run IDをIntakeへ記録して`STARTED`へ遷移できる。異なる
+Idempotency Keyを持つ二つのTab/Windowから同時Startされても、片方だけがCASに成功する。
+
+Idempotency Keyは同一Request再送時に最初のResponseを返すための補助Indexである。CASを主たる
+一意性境界、Idempotency KeyをResponse再利用境界として分離する。
 
 ### 4.4 Shared Application Service
 
@@ -520,8 +526,10 @@ Option:
 --json                   print bootstrap information as JSON
 ```
 
-標準出力へURLを表示する場合、Session Tokenを含まないSafe URLとする。Browser自動OpenへTokenを
-渡す方式はProcess ListとShell Historyへ残らない実装を選ぶ。
+標準出力へURLを表示する場合、長期Session Tokenを含まないSafe URLとする。Browser自動Openでは
+Shellを介さずOS起動APIを呼び、Shell HistoryへTokenを残さない。Browser起動Process Argumentへの
+短時間の露出は完全には排除できないため、URLへ含める値は一回限りのRedeem Tokenとし、Cookie確立後に
+即時失効させて露出Windowと再利用可能性を最小化する。
 
 ## 11. Failure and recovery
 
@@ -565,6 +573,7 @@ Option:
 - New request Save and start
 - New application creation
 - duplicate submission
+- different Idempotency Keys racing the same Intake CAS
 - restart and Run rediscovery
 - Browser disconnect while Fake Run continues
 - React Router actionからCSRF/Idempotencyを含むFake API mutation
@@ -587,8 +596,8 @@ Option:
 |---|---|
 | CLI serve / loopback | FR-190, FR-191, AC-034 |
 | Primary UX | FR-192, FR-194〜196, AC-035〜037 |
-| Workspace boundary | FR-193, FR-205, AC-034, AC-037 |
-| Intake persistence | FR-197, FR-199, AC-035, AC-038 |
+| Workspace boundary | FR-193, FR-205, AC-034, AC-037, AC-054 |
+| Intake persistence | FR-197, FR-199, AC-035, AC-038, AC-053 |
 | Shared Core | FR-198, FR-208, AC-036, AC-042 |
 | Run display/recovery | FR-200, FR-201, AC-041 |
 | HTTP security | FR-202〜204, FR-206, AC-039, AC-040 |
