@@ -1,96 +1,68 @@
 # Loop Engine
 
-Loop Engineは、概略的な要望から要件定義、設計、実装計画、実装、検証、レビュー、修正までを、複数の生成AIへ役割分担させて進行するローカルオーケストレーターです。
+Loop Engine is a local orchestrator for AI-assisted software development. It turns a rough request into a structured workflow for requirements, architecture, implementation planning, implementation, verification, review, and revision.
 
-要望を最初に受け取るDesignerはCodexまたはClaude Codeから選択できます。MVPでは、選択したProviderが独立SessionのDesignerとImplementerを担当し、もう一方が独立Reviewerを担当します。両者を直接再帰的に呼び合わせず、Goで実装する中央のWorkflow Engineが順序、成果物、停止条件、再開処理を管理します。
+Codex and Claude Code do not call each other recursively. A central workflow engine written in Go assigns roles, invokes each provider, validates artifacts, evaluates approval gates, and persists the state required to continue safely.
 
-## Status
+## How it works
 
-GoによるMVP実装を開始しています。
+Loop Engine separates the workflow into three independent roles:
 
-現在実装済み:
+- **Designer** — clarifies the request and produces requirements, architecture, and implementation plans.
+- **Implementer** — implements one approved milestone at a time and addresses required changes.
+- **Reviewer** — independently evaluates artifacts, code changes, and verification results.
 
-- FR-003 / FR-154に基づくProvider割当の導出
-- Designer、Implementer、ReviewerのRole・Session分離
-- 自己レビュー構成の拒否
-- Herdr、tmux、Direct Backendの選択Core
-- `start` によるINTAKE Runの初期化と永続化
-- `doctor` によるProvider実行ファイル、認証、Backend、Role割当の診断
-- `status` による現在Runの表示
-- Provider非依存のDesigner / Reviewer Role Contract
-- `design-requirements` / `review-artifact` Skill
-- Requirements / Review JSON Schema
-- Agent出力に対するGo側の独立JSON Schema検証
-- Codex / Claude Code Provider Adapter
-- Direct Process Runner
-- Design-onlyの要件生成、独立レビュー、有限修正ループ
-- Review対象ArtifactのPath / SHA-256照合
-- Job単位のPrompt、Schema、stdout、stderr、構造化出力保存
-- Codex最終出力ファイル欠落時のfail-closed処理
+The provider that receives the initial request can be selected with `--designer codex` or `--designer claude`. With the two-provider MVP, the selected provider is assigned to the Designer and Implementer roles in separate sessions, while the other provider becomes the independent Reviewer.
 
-未実装:
-
-- tmux / Herdr Sessionの作成と再開
-- Request Bundle
-- Architecture ArtifactとImplementation Plan Loop
-- Verification、Implementation Loop
-- 中断Runのresume
-- SkillsのProvider標準ディレクトリへのinstall-assets
-
-## Runtime backends
-
-実行環境は次の優先順で自動選択します。
-
-1. Herdr
-2. tmux
-3. Direct process
-
-Herdrとtmuxは任意依存です。どちらも存在しない場合でもDirect Backendで動作する設計です。
-
-## Documents
-
-- [要件定義書](docs/requirements.md)
-- [アーキテクチャ設計書](docs/architecture.md)
-- [共通プロジェクト指示](AGENTS.md)
-- [Claude Code向け役割指示](CLAUDE.md)
+```text
+Rough request
+    -> Designer artifact
+    -> Independent review
+    -> Revision when required
+    -> Deterministic gate
+    -> Next workflow phase
+```
 
 ## Core principles
 
-- ターミナル出力ではなく、Schema・Job ID・ハッシュ付き成果物を正式な状態とする
-- Workflow、AI Provider、Runtime Backendを分離する
-- Designer、Implementer、Reviewerを別Role・別Sessionとして実行する
-- Reviewer ProviderをDesigner/Implementer Providerから分離する
-- レビューと修正のループに上限を設ける
-- Agent sessionが失われても成果物から再開できるようにする
-- Reviewerは原則として読取専用にする
-- Supervisedモードをデフォルトとし、コード変更前に人間の承認を要求する
-- 破壊的なGit操作、デプロイ、マージを暗黙に実行しない
+- Artifacts, schemas, job IDs, and hashes are authoritative; terminal text is not.
+- Designer, Implementer, and Reviewer use separate role IDs and agent sessions.
+- The Reviewer provider must differ from the Designer and Implementer provider.
+- Review and revision loops are finite and never auto-approve at their retry limit.
+- Provider adapters, runtime backends, and workflow logic remain separate.
+- A reviewer verdict, a deterministic gate pass, and human authorization are distinct records.
+- Human approval cannot override stale artifacts, failed verification, or required changes.
+- Destructive Git operations, deployment, and merge actions are never implicit.
 
-## Development
+## Requirements
 
-```text
-go test ./...
-go vet ./...
+- macOS or Linux
+- Codex CLI installed and authenticated
+- Claude Code CLI installed and authenticated
+- Go 1.23 or later when building from source
+
+Herdr and tmux are optional. Loop Engine can fall back to direct process execution when neither is available.
+
+## Build from source
+
+```bash
 go build -o bin/loop-engine ./cmd/loop-engine
 ```
 
-現在利用できるコマンド:
+The resulting binary does not require a Go runtime on the target machine.
 
-```text
-loop-engine start
-loop-engine doctor
-loop-engine status
-loop-engine version
+## Quick start
+
+Check the local environment first:
+
+```bash
+bin/loop-engine doctor --backend direct
 ```
 
-## Working design-only flow
+Start a requirements design and review loop from a Markdown request:
 
-最小の実フローはDirect Backendで起動します。
-
-```text
-loop-engine doctor --backend direct
-
-loop-engine start \
+```bash
+bin/loop-engine start \
   --project /path/to/project \
   --backend direct \
   --mode design-only \
@@ -100,31 +72,81 @@ loop-engine start \
   --execute
 ```
 
-実行前にCodex CLIとClaude Code CLIの両方がインストール・認証済みである必要があります。`--designer claude` を指定すると、Claude CodeがDesigner、CodexがReviewerになります。
+To start with Claude Code as the Designer and Codex as the Reviewer:
 
-現在、実Agent実行に対応するRuntime BackendはDirectのみです。Herdrとtmuxは検出・選択Coreまで実装済みで、Session実制御は次のMilestoneです。
-
-Reviewが `changes_requested` の場合はRequired Changeと直前ArtifactをDesignerへ渡し、新しいVersionを生成します。上限到達時は自動承認せず `WAITING_FOR_HUMAN` で停止します。
-
-`approved`は単独では次工程への許可になりません。Loop Engineは、独立Reviewerの品質承認、対象ハッシュや検証結果を確認する決定的Gate、Supervisedモードでの人間による実装開始許可を別々に記録します。通常の人間承認で、修正要求、検証失敗、古いArtifactへのReviewを上書きしません。
-
-成果物は `.loop-engine/runs/<run-id>/` 配下の `artifacts/`、`reviews/`、`jobs/`へ保存されます。
-
-開始AIをClaude Codeにする例:
-
-```text
-loop-engine start \
+```bash
+bin/loop-engine start \
+  --project /path/to/project \
   --backend direct \
   --mode design-only \
   --designer claude \
-  --request "作りたいものの概略" \
+  --request "Describe the product you want to build" \
   --execute
 ```
 
-この場合、ImplementerはClaude Code、ReviewerはCodexへ自動的に割り当てられ、三つのRoleは別Session IDを持ちます。
+Direct execution currently supports the requirements generation, independent review, and finite revision loop. Herdr and tmux participate in backend detection; their managed session execution is implemented separately from the workflow core.
 
-## Planned distribution
+## Commands
 
-macOSおよびLinux向けのGo単一バイナリをGitHub Releasesで配布し、dotfilesからインストールできる形を予定しています。利用環境にはLoop EngineのためのGo toolchainを要求しません。
+```text
+loop-engine start
+loop-engine doctor
+loop-engine status
+loop-engine version
+```
 
-`go.mod` のModule Pathは、Remote Repository作成前の暫定値として `github.com/hironeko/loop-engine` を使用しています。
+Run `loop-engine help` for the command overview.
+
+## Runtime backends
+
+Automatic backend selection uses the following priority:
+
+1. Herdr
+2. tmux
+3. Direct process execution
+
+Runtime backends only control processes and sessions. They do not define workflow state or determine whether an artifact is approved.
+
+## Approval model
+
+Loop Engine deliberately separates three decisions:
+
+1. **Reviewer approval** confirms that the current artifact has no required changes or unresolved questions.
+2. **Gate pass** confirms deterministic conditions such as schema validity, subject identity, provider separation, and required verification.
+3. **Human authorization** permits a specific side-effecting phase in supervised mode and is bound to an exact artifact hash.
+
+An `approved` string from an agent is therefore not sufficient by itself to advance the workflow.
+
+## Artifacts
+
+Run data is stored under the target project:
+
+```text
+.loop-engine/runs/<run-id>/
+├── artifacts/
+├── jobs/
+└── reviews/
+```
+
+Artifacts are versioned and reviewed by exact path and SHA-256. When a review requests changes, the next Designer session receives the previous artifact and the required findings. Reaching the review limit moves the run to a human decision state instead of silently approving it.
+
+## Documentation
+
+The current product and architecture documents are maintained in Japanese:
+
+- [Requirements](docs/requirements.md)
+- [Architecture](docs/architecture.md)
+- [Document output design](docs/design/document-output.md)
+- [Document output implementation plan](docs/implementation-plan-document-output.md)
+- [Shared agent instructions](AGENTS.md)
+- [Claude Code instructions](CLAUDE.md)
+
+## Development
+
+```bash
+go test ./...
+go vet ./...
+go build ./cmd/loop-engine
+```
+
+Changes should be committed as focused units with titles that describe the implemented capability or fix.
