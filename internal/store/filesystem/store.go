@@ -119,6 +119,28 @@ func (s *Store) WriteRunFile(runID, relativePath string, data []byte) (string, e
 	return filepath.ToSlash(filepath.Join(".loop-engine", "runs", runID, clean)), nil
 }
 
+func (s *Store) ReadRunFile(runID, relativePath string) ([]byte, error) {
+	clean := filepath.Clean(relativePath)
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." ||
+		strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("invalid run-relative path %q", relativePath)
+	}
+	data, err := os.ReadFile(filepath.Join(s.runDir(runID), clean))
+	if err != nil {
+		return nil, fmt.Errorf("read run file %q: %w", relativePath, err)
+	}
+	return data, nil
+}
+
+func (s *Store) ReadArtifact(runID, logicalPath string) ([]byte, error) {
+	prefix := filepath.ToSlash(filepath.Join(stateDirectory, "runs", runID)) + "/"
+	logical := filepath.ToSlash(filepath.Clean(logicalPath))
+	if !strings.HasPrefix(logical, prefix) {
+		return nil, fmt.Errorf("artifact path %q is outside run %q", logicalPath, runID)
+	}
+	return s.ReadRunFile(runID, strings.TrimPrefix(logical, prefix))
+}
+
 func (s *Store) Update(run domain.Run, previous domain.WorkflowState, eventType string) error {
 	state, err := json.MarshalIndent(run, "", "  ")
 	if err != nil {

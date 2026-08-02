@@ -1,6 +1,6 @@
 # Loop Engine 要件定義書
 
-- 文書版: 0.6.1-draft
+- 文書版: 0.7.0-draft
 - ステータス: Draft（React/TypeScript UI方針追加、独立レビュー待ち）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
@@ -403,6 +403,22 @@ Codexは概略要望とProject Profileから、少なくとも次の成果物を
 #### FR-042
 
 回答によって設計が大きく変わる未決事項は、人間へ質問としてエスカレーションすること。
+
+#### FR-043
+
+Requirements承認後、DesignerはRequirementsとは別のVersioned Architecture Artifactを生成し、
+Decision、Component責務、Interface、Data Flow、品質特性、Risk、Requirement Traceabilityを記録すること。
+
+#### FR-044
+
+Architecture Artifactは`review_type: architecture`として独立Reviewerの有限Review/修正Loopを通過し、
+現在ArtifactのPathとSHA-256に対するGateが成功するまでImplementation Plan生成へ進まないこと。
+
+#### FR-045
+
+`0.4.x`の実行可能な初期実装ではRequirements、Architecture、Implementation PlanをVersioned JSON
+Artifactとして保存し、各JSON Schemaへ適合させること。ADR-009のMarkdown Publication移行では、
+同じDomain情報をMarkdown正本へ移行し、旧Runを暗黙に読み替えないこと。
 
 ### 9.6 レビュー
 
@@ -1684,6 +1700,12 @@ SSR用Server Runtimeを含む場合はBuildを失敗させる。
 
 New request/New applicationのForm送信、Intake確認、Run表示のFrontend TestがFake APIで成功し、
 同じ操作のHTTP Contract TestがGo Application Serviceへの入力とCSRF/Idempotency Headerを検証する。
+
+### AC-049
+
+Requirements承認済みRunへPlanningを実行すると、Architecture生成・独立Review・必要な修正が先に収束し、
+承認されたArchitectureを入力としてImplementation Plan生成・独立Review・必要な修正が実行される。
+ArchitectureまたはPlanのReview上限、`blocked`、Stale Hashでは次工程へ進まない。
 
 ## 16. 初期リスク
 

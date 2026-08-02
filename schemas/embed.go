@@ -12,6 +12,14 @@ func Requirements() ([]byte, error) {
 	return read("requirements.schema.json")
 }
 
+func Architecture() ([]byte, error) {
+	return read("architecture.schema.json")
+}
+
+func Plan() ([]byte, error) {
+	return read("plan.schema.json")
+}
+
 func Review() ([]byte, error) {
 	return read("review.schema.json")
 }

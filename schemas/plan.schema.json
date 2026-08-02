@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "title": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "milestones": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^M[0-9]{2,3}$" },
+          "objective": { "type": "string", "minLength": 1 },
+          "scope": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "non_scope": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "dependencies": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^M[0-9]{2,3}$" }
+          },
+          "change_areas": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "acceptance_criteria": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "verification_commands": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "executable": { "type": "string", "minLength": 1 },
+                "args": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              },
+              "required": ["executable", "args"]
+            }
+          },
+          "risks": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "done_when": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        },
+        "required": [
+          "id",
+          "objective",
+          "scope",
+          "non_scope",
+          "dependencies",
+          "change_areas",
+          "acceptance_criteria",
+          "verification_commands",
+          "risks",
+          "done_when"
+        ]
+      }
+    },
+    "requirement_traceability": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "requirement_id": { "type": "string", "minLength": 1 },
+          "milestone_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "pattern": "^M[0-9]{2,3}$" }
+          }
+        },
+        "required": ["requirement_id", "milestone_ids"]
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "required": [
+    "schema_version",
+    "title",
+    "summary",
+    "milestones",
+    "requirement_traceability",
+    "risks",
+    "open_questions"
+  ]
+}

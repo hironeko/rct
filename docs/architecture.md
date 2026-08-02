@@ -1,8 +1,8 @@
 # Loop Engine アーキテクチャ設計書
 
-- 文書版: 0.5.1-draft
+- 文書版: 0.6.0-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.6.1-draft
+- 対応要件: `requirements.md` 0.7.0-draft
 - Draft拡張注記: Document Artifact移行方針とApproval Gate責務分離を含む。
   独立Review承認後にDraft表記を更新する
 - 実装言語: Go
@@ -340,7 +340,13 @@ stateDiagram-v2
     REQUIREMENTS_REVIEW --> WAITING_FOR_HUMAN: blocked / retry limit
     REQUIREMENTS_REVISION --> REQUIREMENTS_REVIEW
 
-    REQUIREMENTS_APPROVED --> PLAN_DRAFT
+    REQUIREMENTS_APPROVED --> ARCHITECTURE_DRAFT
+    ARCHITECTURE_DRAFT --> ARCHITECTURE_REVIEW
+    ARCHITECTURE_REVIEW --> ARCHITECTURE_APPROVED: approved
+    ARCHITECTURE_REVIEW --> ARCHITECTURE_DRAFT: changes_requested
+    ARCHITECTURE_REVIEW --> WAITING_FOR_HUMAN: blocked / retry limit
+
+    ARCHITECTURE_APPROVED --> PLAN_DRAFT
     PLAN_DRAFT --> PLAN_REVIEW
     PLAN_REVIEW --> PLAN_APPROVED: approved
     PLAN_REVIEW --> PLAN_REVISION: changes_requested
@@ -381,6 +387,7 @@ stateDiagram-v2
 次の条件を常に満たす。
 
 - `REQUIREMENTS_APPROVED` 以降では承認済みRequirements Artifactが存在する
+- `ARCHITECTURE_APPROVED` 以降では承認済みArchitecture Artifactが存在する
 - `PLAN_APPROVED` 以降では承認済みImplementation Planが存在する
 - `MILESTONE_REVIEW` へ入る前にVerificationが成功している
 - `MILESTONE_APPROVED` では未解決のRequired Changeがない
@@ -1030,7 +1037,15 @@ loop-engine start --request "..." [--execute] [options]
 7. Project Inspection
 8. Workflow開始
 
-現在の実装では、`--execute --backend direct --mode design-only` によりRequirements生成、独立Review、有限修正Loopを実行する。`--execute` を省略した場合はINTAKE Runの作成だけを行う。
+現在の実装では、`--execute --backend direct`によりRequirements、Architecture、Implementation Planの
+生成、独立Review、有限修正Loopを順に実行する。`--until requirements`でRequirements承認時に停止できる。
+`--execute`を省略した場合はINTAKE Runの作成だけを行う。
+
+Planningだけを再開する場合は次を使用する。
+
+```text
+loop-engine plan --project <path> [--max-review-rounds 3]
+```
 
 ### 18.2 Status
 
@@ -1251,8 +1266,9 @@ loop-engine/
 │   ├── config/
 │   └── cli/
 ├── schemas/
-│   ├── job.schema.json
-│   ├── result.schema.json
+│   ├── architecture.schema.json
+│   ├── plan.schema.json
+│   ├── requirements.schema.json
 │   ├── review.schema.json
 │   └── state.schema.json
 ├── prompts/

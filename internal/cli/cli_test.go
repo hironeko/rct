@@ -166,6 +166,7 @@ func TestStartExecuteRunsDesignWorkflow(t *testing.T) {
 		"--mode", "design-only",
 		"--request", "Build the loop engine",
 		"--execute",
+		"--until", "requirements",
 	})
 	if exitCode != 0 {
 		t.Fatalf("Run() exit code = %d, stderr = %q", exitCode, stderr.String())

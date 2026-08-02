@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/hironeko/loop-engine/internal/app"
+	"github.com/hironeko/loop-engine/internal/domain"
 	"github.com/hironeko/loop-engine/internal/store/filesystem"
 )
 
@@ -44,6 +45,8 @@ func (c *CLI) Run(ctx context.Context, args []string) int {
 		return c.runStart(ctx, args[1:])
 	case "doctor":
 		return c.runDoctor(ctx, args[1:])
+	case "plan":
+		return c.runPlan(ctx, args[1:])
 	case "status":
 		return c.runStatus(args[1:])
 	case "version":
@@ -72,6 +75,7 @@ func (c *CLI) runStart(ctx context.Context, args []string) int {
 	reviewer := flags.String("reviewer", "", "reviewer provider: codex or claude")
 	project := flags.String("project", ".", "project directory")
 	execute := flags.Bool("execute", false, "execute the design workflow after initializing the run")
+	until := flags.String("until", "plan", "execute through requirements or plan")
 	maxReviewRounds := flags.Int(
 		"max-review-rounds",
 		3,
@@ -80,6 +84,10 @@ func (c *CLI) runStart(ctx context.Context, args []string) int {
 	asJSON := flags.Bool("json", false, "print JSON")
 
 	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *until != "requirements" && *until != "plan" {
+		fmt.Fprintln(c.stderr, "start: --until must be requirements or plan")
 		return 2
 	}
 
@@ -108,6 +116,13 @@ func (c *CLI) runStart(ctx context.Context, args []string) int {
 			fmt.Fprintf(c.stderr, "start: execute design workflow: %v\n", err)
 			return 1
 		}
+		if *until == "plan" && run.State == domain.StateRequirementsApproved {
+			run, err = c.service.ExecutePlanning(ctx, run, *maxReviewRounds)
+			if err != nil {
+				fmt.Fprintf(c.stderr, "start: execute planning workflow: %v\n", err)
+				return 1
+			}
+		}
 	}
 
 	if *asJSON {
@@ -133,11 +148,54 @@ func (c *CLI) runStart(ctx context.Context, args []string) int {
 		if run.RequirementsReview != "" {
 			fmt.Fprintf(c.stdout, "Review: %s\n", run.RequirementsReview)
 		}
+		if run.ArchitecturePath != "" {
+			fmt.Fprintf(c.stdout, "Architecture: %s\n", run.ArchitecturePath)
+		}
+		if run.PlanPath != "" {
+			fmt.Fprintf(c.stdout, "Plan: %s\n", run.PlanPath)
+		}
 	} else {
 		fmt.Fprintln(
 			c.stdout,
 			"Run persisted at INTAKE. Add --execute --backend direct to run the design workflow.",
 		)
+	}
+	return 0
+}
+
+func (c *CLI) runPlan(ctx context.Context, args []string) int {
+	flags := flag.NewFlagSet("plan", flag.ContinueOnError)
+	flags.SetOutput(c.stderr)
+	project := flags.String("project", ".", "project directory")
+	maxReviewRounds := flags.Int("max-review-rounds", 3, "maximum review rounds per planning artifact")
+	asJSON := flags.Bool("json", false, "print JSON")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	absoluteProject, err := filepath.Abs(*project)
+	if err != nil {
+		fmt.Fprintf(c.stderr, "plan: resolve project: %v\n", err)
+		return 1
+	}
+	run, err := filesystem.New(absoluteProject).LoadCurrent()
+	if err != nil {
+		fmt.Fprintf(c.stderr, "plan: %v\n", err)
+		return 1
+	}
+	run, err = c.service.ExecutePlanning(ctx, run, *maxReviewRounds)
+	if err != nil {
+		fmt.Fprintf(c.stderr, "plan: %v\n", err)
+		return 1
+	}
+	if *asJSON {
+		return c.writeJSON(run)
+	}
+	fmt.Fprintf(c.stdout, "Run: %s\n", run.ID)
+	fmt.Fprintf(c.stdout, "State: %s\n", run.State)
+	fmt.Fprintf(c.stdout, "Architecture: %s\n", run.ArchitecturePath)
+	fmt.Fprintf(c.stdout, "Plan: %s\n", run.PlanPath)
+	if run.State == domain.StateAwaitingApproval {
+		fmt.Fprintln(c.stdout, "Next: loop-engine approve --project <path>")
 	}
 	return 0
 }
@@ -229,6 +287,21 @@ func (c *CLI) runStatus(args []string) int {
 	if run.RequirementsReview != "" {
 		fmt.Fprintf(c.stdout, "Review: %s\n", run.RequirementsReview)
 	}
+	if run.ArchitectureRound > 0 {
+		fmt.Fprintf(c.stdout, "Architecture rounds: %d/%d\n", run.ArchitectureRound, run.MaxReviewRounds)
+	}
+	if run.ArchitecturePath != "" {
+		fmt.Fprintf(c.stdout, "Architecture: %s\n", run.ArchitecturePath)
+	}
+	if run.PlanRound > 0 {
+		fmt.Fprintf(c.stdout, "Plan rounds: %d/%d\n", run.PlanRound, run.MaxReviewRounds)
+	}
+	if run.PlanPath != "" {
+		fmt.Fprintf(c.stdout, "Plan: %s\n", run.PlanPath)
+	}
+	if run.WaitingReason != "" {
+		fmt.Fprintf(c.stdout, "Waiting reason: %s\n", run.WaitingReason)
+	}
 	if run.Failure != "" {
 		fmt.Fprintf(c.stdout, "Failure: %s\n", run.Failure)
 	}
@@ -296,5 +369,5 @@ func (c *CLI) writeJSON(value any) int {
 
 func (c *CLI) printUsage() {
 	fmt.Fprintln(c.stderr, "Usage: loop-engine <command> [options]")
-	fmt.Fprintln(c.stderr, "Commands: start, doctor, status, version")
+	fmt.Fprintln(c.stderr, "Commands: start, plan, doctor, status, version")
 }

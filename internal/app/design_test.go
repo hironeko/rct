@@ -248,6 +248,25 @@ func testReview(
 	verdict domain.Verdict,
 	required bool,
 ) []byte {
+	return testReviewForType(
+		t,
+		runID,
+		jobID,
+		"requirements",
+		subjectPath,
+		subjectHash,
+		"application/json",
+		verdict,
+		required,
+	)
+}
+
+func testReviewForType(
+	t *testing.T,
+	runID, jobID, reviewType, subjectPath, subjectHash, mediaType string,
+	verdict domain.Verdict,
+	required bool,
+) []byte {
 	t.Helper()
 	findings := []any{}
 	if required {
@@ -264,11 +283,11 @@ func testReview(
 		"schema_version": "1.0",
 		"run_id":         runID,
 		"job_id":         jobID,
-		"review_type":    "requirements",
+		"review_type":    reviewType,
 		"subject": map[string]string{
 			"path":       subjectPath,
 			"sha256":     subjectHash,
-			"media_type": "application/json",
+			"media_type": mediaType,
 		},
 		"verdict": verdict,
 		"summary": "Review",
