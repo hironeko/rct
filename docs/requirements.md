@@ -1,6 +1,6 @@
 # rct 要件定義書
 
-- 文書版: 0.9.1-draft
+- 文書版: 0.9.2-draft
 - ステータス: Draft（rct Core Loop実装済み、拡張機能は設計段階）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
@@ -1294,6 +1294,13 @@ Shell設定を暗黙に削除してはならない。
 Push/Pull RequestではRace Test、Vet、Build、Installer Integration Testを実行すること。`v*` Tagでは
 対応PlatformのArchiveとChecksumを生成し、GitHub Releaseへ公開すること。
 
+#### FR-226
+
+Providerへ渡すStructured Output Schemaは、rct内のJSON Schema Validatorだけでなく、対象Providerが
+受理するSchema Subsetにも適合すること。Claude Codeへ渡すSchemaのTop Levelでは`oneOf`、`allOf`、
+`anyOf`を使用しないこと。Review verdictと`required_changes`、`open_questions`の意味的整合性は、
+Provider出力後にrctのDomain Validatorが必ず検証し、不整合なReviewをGateへ渡してはならない。
+
 ## 10. 非機能要件
 
 ### NFR-001: ポータビリティ
@@ -1815,6 +1822,12 @@ Local Release FixtureをInstallerへ渡すとOS/Architectureに対応するArchi
 
 Release Buildはdarwin/arm64、darwin/amd64、linux/arm64、linux/amd64のBinaryを生成し、Tag Versionを
 `rct version`へ埋め込める。
+
+### AC-061
+
+全埋め込みStructured Output Schemaに対する静的互換性Testが、Top Levelの`oneOf`、`allOf`、`anyOf`を
+検出して失敗する。Review Schemaから条件分岐を除いても、`approved`に必須修正または未解決事項を含む
+Review、必須修正のない`changes_requested`、未解決事項のない`blocked`はDomain Validationで拒否される。
 
 ## 16. 初期リスク
 

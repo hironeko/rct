@@ -1,8 +1,8 @@
 # rct アーキテクチャ設計書
 
-- 文書版: 0.8.1-draft
+- 文書版: 0.8.2-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.9.1-draft
+- 対応要件: `requirements.md` 0.9.2-draft
 - Draft拡張注記: Document Artifact移行方針、Approval Gate責務分離、rct名称移行を含む。
 - 実装言語: Go
 - 対象OS: macOS / Linux
@@ -614,6 +614,12 @@ claude
 ```
 
 両AdapterともPromptを標準入力で渡す。個人のModel、MCP、Hookなどによって管理Jobの意味が変わらないよう、CodexはUser ConfigとRulesを読み込まず、Claude CodeはSafe Modeで起動する。認証情報は各CLIの既存状態を利用する。
+
+Providerへ渡すJSON Schemaは、Provider共通のArtifact契約とProvider固有のStructured Output制約の
+共通部分に限定する。特にClaude Codeの`--json-schema`へ渡すSchemaのTop Levelでは`oneOf`、`allOf`、
+`anyOf`を使用しない。Review verdictと配列内容の条件付き整合性はJSON Schemaへ重複実装せず、
+Structured Outputを受領した後のDomain ValidatorでFail Closedに検証する。全埋め込みSchemaには、
+このProvider互換境界を固定する静的回帰Testを適用する。
 
 Implementer JobではCodexを`--sandbox workspace-write`、Claude Codeを
 `--permission-mode acceptEdits --tools=Read,Glob,Grep,Edit,Write`で起動する。Claude Implementerの

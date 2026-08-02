@@ -2,7 +2,7 @@
 
 - 文書版: 0.2.0-draft
 - 作成日: 2026-07-31
-- 入力要件: `docs/requirements.md` 0.9.1-draft
+- 入力要件: `docs/requirements.md` 0.9.2-draft
 - 入力設計: `docs/design/document-output.md` 0.2.0-draft
 - 状態: 計画完了（実装未着手）
 

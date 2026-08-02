@@ -42,77 +42,36 @@ func TestEmbeddedSchemasCompileAndRejectIncompleteOutput(t *testing.T) {
 	}
 }
 
-func TestReviewSchemaEnforcesVerdictSemantics(t *testing.T) {
+func TestEmbeddedSchemasAvoidUnsupportedClaudeTopLevelCombinators(t *testing.T) {
 	t.Parallel()
 
-	data, err := schemas.Review()
-	if err != nil {
-		t.Fatalf("load review schema: %v", err)
-	}
-	schema, err := compileOutputSchema(data)
-	if err != nil {
-		t.Fatalf("compileOutputSchema() error: %v", err)
-	}
-
 	tests := []struct {
-		name            string
-		verdict         string
-		requiredChanges []any
-		openQuestions   []string
-		wantValid       bool
+		name string
+		load func() ([]byte, error)
 	}{
-		{name: "approved", verdict: "approved", wantValid: true},
-		{
-			name:            "approved with required change",
-			verdict:         "approved",
-			requiredChanges: []any{reviewFinding()},
-		},
-		{
-			name:          "approved with open question",
-			verdict:       "approved",
-			openQuestions: []string{"Which policy applies?"},
-		},
-		{
-			name:            "changes requested",
-			verdict:         "changes_requested",
-			requiredChanges: []any{reviewFinding()},
-			wantValid:       true,
-		},
-		{name: "changes requested without finding", verdict: "changes_requested"},
-		{
-			name:          "blocked",
-			verdict:       "blocked",
-			openQuestions: []string{"Which policy applies?"},
-			wantValid:     true,
-		},
-		{name: "blocked without question", verdict: "blocked"},
+		{name: "requirements", load: schemas.Requirements},
+		{name: "architecture", load: schemas.Architecture},
+		{name: "plan", load: schemas.Plan},
+		{name: "implementation", load: schemas.Implementation},
+		{name: "review", load: schemas.Review},
 	}
-
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			output := validReviewOutput(test.verdict)
-			requiredChanges := test.requiredChanges
-			if requiredChanges == nil {
-				requiredChanges = []any{}
+
+			data, err := test.load()
+			if err != nil {
+				t.Fatalf("load schema: %v", err)
 			}
-			output["required_changes"] = requiredChanges
-			openQuestions := test.openQuestions
-			if openQuestions == nil {
-				openQuestions = []string{}
+			var root map[string]json.RawMessage
+			if err := json.Unmarshal(data, &root); err != nil {
+				t.Fatalf("decode schema: %v", err)
 			}
-			output["open_questions"] = openQuestions
-			encoded, marshalErr := json.Marshal(output)
-			if marshalErr != nil {
-				t.Fatal(marshalErr)
-			}
-			validationErr := validateStructuredOutput(schema, encoded)
-			if test.wantValid && validationErr != nil {
-				t.Fatalf("validateStructuredOutput() error: %v", validationErr)
-			}
-			if !test.wantValid && validationErr == nil {
-				t.Fatal("validateStructuredOutput() succeeded, want verdict semantic failure")
+			for _, keyword := range []string{"oneOf", "allOf", "anyOf"} {
+				if _, exists := root[keyword]; exists {
+					t.Fatalf("schema contains Claude-incompatible top-level %q", keyword)
+				}
 			}
 		})
 	}
@@ -209,16 +168,5 @@ func validReviewOutput(verdict string) map[string]any {
 		"required_changes":     []any{},
 		"optional_suggestions": []string{},
 		"open_questions":       []string{},
-	}
-}
-
-func reviewFinding() map[string]string {
-	return map[string]string{
-		"id":               "RC-001",
-		"severity":         "high",
-		"target":           "requirements",
-		"problem":          "Missing behavior",
-		"rationale":        "Cannot verify it",
-		"expected_outcome": "Define observable behavior",
 	}
 }
