@@ -139,6 +139,7 @@ Adapterを変更する場合はContract Testを追加すること。通常のCI�
 標準コマンド:
 
 ```text
+make check
 gofmt -w cmd internal
 go test ./...
 go vet ./...

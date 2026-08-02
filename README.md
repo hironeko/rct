@@ -49,10 +49,50 @@ Rough request
 
 Herdr and tmux are optional. rct can fall back to direct process execution when neither is available.
 
+## Install
+
+Install from a local clone. By default, this writes `rct` to `~/.local/bin`:
+
+```bash
+make install
+```
+
+Ensure the install directory is on `PATH`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Use a different prefix when needed:
+
+```bash
+make install PREFIX=/usr/local
+```
+
+Remove only the installed binary:
+
+```bash
+make uninstall
+```
+
+After the first tagged GitHub Release is available, the checksum-verifying binary installer can be used without
+a Go toolchain:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hironeko/rct/main/scripts/install.sh | sh
+```
+
+Set `RCT_VERSION` to install a specific release, or `RCT_INSTALL_DIR` to select another destination:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hironeko/rct/main/scripts/install.sh | \
+  RCT_VERSION=v0.5.0 RCT_INSTALL_DIR="$HOME/.local/bin" sh
+```
+
 ## Build from source
 
 ```bash
-go build -o bin/rct ./cmd/rct
+make build
 ```
 
 The resulting binary does not require a Go runtime on the target machine.
@@ -62,13 +102,13 @@ The resulting binary does not require a Go runtime on the target machine.
 Check the local environment first:
 
 ```bash
-bin/rct doctor --backend direct
+rct doctor --backend direct
 ```
 
 Start the requirements, architecture, and implementation-plan loops from a Markdown request:
 
 ```bash
-bin/rct start \
+rct start \
   --project /path/to/project \
   --backend direct \
   --mode supervised \
@@ -81,12 +121,12 @@ bin/rct start \
 After the plan is independently approved, authorize its exact SHA-256 and run the milestone loop:
 
 ```bash
-bin/rct approve \
+rct approve \
   --project /path/to/project \
   --by "$USER" \
   --note "Approved for implementation"
 
-bin/rct implement \
+rct implement \
   --project /path/to/project \
   --max-review-rounds 3 \
   --max-verification-attempts 3
@@ -100,7 +140,7 @@ cumulative diff before marking the run completed.
 To start with Claude Code as the Designer and Codex as the Reviewer:
 
 ```bash
-bin/rct start \
+rct start \
   --project /path/to/project \
   --backend direct \
   --mode design-only \
@@ -180,9 +220,9 @@ The current product and architecture documents are maintained in Japanese:
 ## Development
 
 ```bash
-go test ./...
-go vet ./...
-go build ./cmd/rct
+make test
+make vet
+make check
 ```
 
 Changes should be committed as focused units with titles that describe the implemented capability or fix.

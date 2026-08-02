@@ -1,6 +1,6 @@
 # rct 要件定義書
 
-- 文書版: 0.9.0-draft
+- 文書版: 0.9.1-draft
 - ステータス: Draft（rct Core Loop実装済み、拡張機能は設計段階）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
@@ -1262,6 +1262,38 @@ Frontend DependencyはLockfileで固定し、CIとRelease BuildでType Check、U
 外部URL検査を実行すること。埋込済みProduction AssetとFrontend Sourceの対応をBuild Manifestまたは
 同等のMachine-readable Metadataで検査できること。
 
+### 9.20 Build / Install / Release
+
+#### FR-220
+
+Source Checkoutから`make build`、`make install`、`make uninstall`、`make check`を実行できること。
+標準Install先は`$HOME/.local/bin/rct`とし、`PREFIX`で変更可能にすること。
+
+#### FR-221
+
+GitHub ReleaseはmacOS/Linuxのarm64/amd64向けに、Go Runtimeを必要としない単一Binary Archiveを
+配布すること。Archive名はOS、Architecture、Versionを一意に識別できること。
+
+#### FR-222
+
+Releaseごとに全ArchiveのSHA-256を含む`checksums.txt`を配布すること。InstallerはChecksum一致前に
+BinaryをInstallしてはならない。
+
+#### FR-223
+
+Release InstallerはOSとArchitectureを判定し、Latestまたは明示Versionを取得して、既定では
+`$HOME/.local/bin/rct`へInstallすること。Install先は環境変数で変更可能にすること。
+
+#### FR-224
+
+Uninstallerは指定Install Directory内の`rct` Binaryだけを削除し、Directory、User Config、Run State、
+Shell設定を暗黙に削除してはならない。
+
+#### FR-225
+
+Push/Pull RequestではRace Test、Vet、Build、Installer Integration Testを実行すること。`v*` Tagでは
+対応PlatformのArchiveとChecksumを生成し、GitHub Releaseへ公開すること。
+
 ## 10. 非機能要件
 
 ### NFR-001: ポータビリティ
@@ -1768,6 +1800,21 @@ Git Worktreeに日本語名または空白を含む未追跡Fileがある場合�
 同じRunとExpected State Revisionに対する二つのHuman Approvalを同時実行した場合、Storeの原子的な
 Revision CASに成功した一件だけが`IMPLEMENTATION_READY`へ遷移し、もう一件はRevision Conflictまたは
 遷移済みStateとして拒否される。
+
+### AC-058
+
+一時Prefixへ`make install`すると実行可能な`rct`が配置され、Versionを表示できる。同じPrefixで
+`make uninstall`するとBinaryだけが削除される。
+
+### AC-059
+
+Local Release FixtureをInstallerへ渡すとOS/Architectureに対応するArchiveをChecksum検証後にInstallし、
+改ざんしたChecksumでは失敗してInstall先へBinaryを作成しない。
+
+### AC-060
+
+Release Buildはdarwin/arm64、darwin/amd64、linux/arm64、linux/amd64のBinaryを生成し、Tag Versionを
+`rct version`へ埋め込める。
 
 ## 16. 初期リスク
 

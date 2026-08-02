@@ -16,7 +16,7 @@ import (
 	"github.com/hironeko/rct/internal/store/filesystem"
 )
 
-const Version = "0.5.0-dev"
+var Version = "0.5.0-dev"
 
 type CLI struct {
 	service *app.Service

@@ -1,8 +1,8 @@
 # rct アーキテクチャ設計書
 
-- 文書版: 0.8.0-draft
+- 文書版: 0.8.1-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.9.0-draft
+- 対応要件: `requirements.md` 0.9.1-draft
 - Draft拡張注記: Document Artifact移行方針、Approval Gate責務分離、rct名称移行を含む。
 - 実装言語: Go
 - 対象OS: macOS / Linux
@@ -1344,13 +1344,16 @@ checksums.txt
 2. Homebrew Tap
 3. dotfilesのInstaller
 
-dotfiles Installerの責務:
+初期Installerの責務:
 
 - OSとArchitectureの判定
 - Version選択
 - Archive取得
 - Checksum検証
 - `~/.local/bin` などへの配置
+
+将来のAsset/Backend統合時に追加する責務:
+
 - `rct install-assets` の呼び出し
 - 任意のHerdr Plugin登録
 

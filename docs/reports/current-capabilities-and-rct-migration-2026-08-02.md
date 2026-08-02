@@ -82,6 +82,18 @@
 - State Revision CAS
 - Provider CLIの既存認証を利用し、rct自身はAPI Keyを保存しない方針
 
+### 2.6 Build / Install / Release
+
+- `make build`によるVersion埋込Build
+- `make install`による`~/.local/bin/rct`への標準Install
+- `PREFIX`によるInstall先変更
+- `make uninstall`によるBinary単体の安全な削除
+- macOS/Linuxとarm64/amd64を判定するRelease Installer
+- GitHub ReleaseのSHA-256照合後だけBinaryをInstallする検証
+- Installer / UninstallerのLocal Integration Test
+- Push / Pull Requestで`make check`を実行するCI
+- `v*` Tagから4 PlatformのArchiveとChecksumを生成するRelease Workflow
+
 ## 3. 設計済み・未実装の機能
 
 次は要件・詳細設計・実装計画まで完成しているが、現時点のBinaryには未実装である。
@@ -96,7 +108,6 @@
 - Herdr/tmux上でのManaged Session実行
 - `resume`、`stop`、`logs`、`reject`、`answer`
 - Agent AssetのInstall / Update Command
-- Release Binary配布Automation
 
 ## 4. rct名称移行の変更点
 
@@ -126,6 +137,7 @@ go build ./cmd/rct                                PASS
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build    PASS
 rct --help                                        PASS
 rct version                                       0.5.0-dev
+make test-installer                              PASS
 git diff --check                                  PASS
 ```
 

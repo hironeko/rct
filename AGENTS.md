@@ -138,6 +138,7 @@ Maintain coverage for at least:
 Standard commands:
 
 ```text
+make check
 gofmt -w cmd internal
 go test ./...
 go vet ./...
