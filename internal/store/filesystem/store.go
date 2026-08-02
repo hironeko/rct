@@ -9,10 +9,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/hironeko/loop-engine/internal/domain"
+	"github.com/hironeko/rct/internal/domain"
 )
 
-const stateDirectory = ".loop-engine"
+const stateDirectory = ".rct"
 
 var ErrRevisionConflict = errors.New("state revision conflict")
 
@@ -122,7 +122,7 @@ func (s *Store) WriteRunFile(runID, relativePath string, data []byte) (string, e
 	if err := writeAtomic(path, appendNewline(data), 0o600); err != nil {
 		return "", fmt.Errorf("write run file %q: %w", relativePath, err)
 	}
-	return filepath.ToSlash(filepath.Join(".loop-engine", "runs", runID, clean)), nil
+	return filepath.ToSlash(filepath.Join(".rct", "runs", runID, clean)), nil
 }
 
 func cleanRunRelativePath(relativePath string) (string, error) {

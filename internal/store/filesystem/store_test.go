@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hironeko/loop-engine/internal/domain"
+	"github.com/hironeko/rct/internal/domain"
 )
 
 func TestCreateAndLoadCurrent(t *testing.T) {
@@ -26,17 +26,17 @@ func TestCreateAndLoadCurrent(t *testing.T) {
 				Role:      domain.RoleDesigner,
 				Provider:  domain.ProviderClaude,
 				RoleID:    "designer",
-				SessionID: "loop-test-designer",
+				SessionID: "rct-test-designer",
 			},
 		},
-		RequestPath: ".loop-engine/runs/run_test_001/request.md",
+		RequestPath: ".rct/runs/run_test_001/request.md",
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		Revision:    1,
 	}
 
 	store := New(project)
-	if err := store.Create(run, "Build a loop engine"); err != nil {
+	if err := store.Create(run, "Build rct"); err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
 
@@ -48,12 +48,12 @@ func TestCreateAndLoadCurrent(t *testing.T) {
 		t.Fatalf("LoadCurrent() = %#v, want run %#v", got, run)
 	}
 
-	requestPath := filepath.Join(project, ".loop-engine", "runs", run.ID, "request.md")
+	requestPath := filepath.Join(project, ".rct", "runs", run.ID, "request.md")
 	request, err := os.ReadFile(requestPath)
 	if err != nil {
 		t.Fatalf("read request: %v", err)
 	}
-	if string(request) != "Build a loop engine\n" {
+	if string(request) != "Build rct\n" {
 		t.Fatalf("request = %q", request)
 	}
 	requestInfo, err := os.Stat(requestPath)

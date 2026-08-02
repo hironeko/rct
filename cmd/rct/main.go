@@ -6,8 +6,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/hironeko/loop-engine/internal/app"
-	"github.com/hironeko/loop-engine/internal/cli"
+	"github.com/hironeko/rct/internal/app"
+	"github.com/hironeko/rct/internal/cli"
 )
 
 func main() {

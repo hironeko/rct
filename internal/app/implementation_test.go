@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hironeko/loop-engine/internal/domain"
-	"github.com/hironeko/loop-engine/internal/providers"
-	loopruntime "github.com/hironeko/loop-engine/internal/runtime"
-	"github.com/hironeko/loop-engine/internal/store/filesystem"
+	"github.com/hironeko/rct/internal/domain"
+	"github.com/hironeko/rct/internal/providers"
+	rctruntime "github.com/hironeko/rct/internal/runtime"
+	"github.com/hironeko/rct/internal/store/filesystem"
 )
 
 type implementationGateway struct {
@@ -48,39 +48,39 @@ func (g *implementationGateway) Execute(
 type implementationRunner struct {
 	verificationFailures int
 	verificationCalls    int
-	verificationRequests []loopruntime.ProcessRequest
+	verificationRequests []rctruntime.ProcessRequest
 }
 
 func (r *implementationRunner) Run(
 	_ context.Context,
-	request loopruntime.ProcessRequest,
-) (loopruntime.ProcessResult, error) {
+	request rctruntime.ProcessRequest,
+) (rctruntime.ProcessResult, error) {
 	if request.Executable == "git" {
 		joined := strings.Join(request.Args, " ")
 		switch {
 		case strings.HasPrefix(joined, "status "):
 			if r.verificationCalls == 0 {
-				return loopruntime.ProcessResult{Stdout: []byte("?? .loop-engine/runs/internal\x00")}, nil
+				return rctruntime.ProcessResult{Stdout: []byte("?? .rct/runs/internal\x00")}, nil
 			}
-			return loopruntime.ProcessResult{Stdout: []byte(" M app.go\x00")}, nil
+			return rctruntime.ProcessResult{Stdout: []byte(" M app.go\x00")}, nil
 		case joined == "rev-parse HEAD":
-			return loopruntime.ProcessResult{Stdout: []byte("abc123\n")}, nil
+			return rctruntime.ProcessResult{Stdout: []byte("abc123\n")}, nil
 		case strings.HasPrefix(joined, "diff "):
-			return loopruntime.ProcessResult{Stdout: []byte("diff --git a/app.go b/app.go\n+implemented\n")}, nil
+			return rctruntime.ProcessResult{Stdout: []byte("diff --git a/app.go b/app.go\n+implemented\n")}, nil
 		}
 	}
 	if request.Executable == "go" {
 		r.verificationCalls++
 		r.verificationRequests = append(r.verificationRequests, request)
 		if r.verificationCalls <= r.verificationFailures {
-			return loopruntime.ProcessResult{
+			return rctruntime.ProcessResult{
 				Stderr:   []byte("test failed"),
 				ExitCode: 1,
 			}, errors.New("process exited with code 1")
 		}
-		return loopruntime.ProcessResult{Stdout: []byte("ok\n")}, nil
+		return rctruntime.ProcessResult{Stdout: []byte("ok\n")}, nil
 	}
-	return loopruntime.ProcessResult{}, fmt.Errorf("unexpected command: %s %v", request.Executable, request.Args)
+	return rctruntime.ProcessResult{}, fmt.Errorf("unexpected command: %s %v", request.Executable, request.Args)
 }
 
 func TestVerifyMilestoneRejectsExecutableBeforeSpawn(t *testing.T) {
@@ -168,18 +168,18 @@ type reviewSubjectRunner struct {
 
 func (r reviewSubjectRunner) Run(
 	_ context.Context,
-	request loopruntime.ProcessRequest,
-) (loopruntime.ProcessResult, error) {
+	request rctruntime.ProcessRequest,
+) (rctruntime.ProcessResult, error) {
 	if request.Executable != "git" {
-		return loopruntime.ProcessResult{}, fmt.Errorf("unexpected executable %q", request.Executable)
+		return rctruntime.ProcessResult{}, fmt.Errorf("unexpected executable %q", request.Executable)
 	}
 	if len(request.Args) > 0 && request.Args[0] == "status" {
-		return loopruntime.ProcessResult{Stdout: r.status}, nil
+		return rctruntime.ProcessResult{Stdout: r.status}, nil
 	}
 	if len(request.Args) > 0 && request.Args[0] == "diff" {
-		return loopruntime.ProcessResult{Stdout: []byte("diff --git a/tracked b/tracked\n")}, nil
+		return rctruntime.ProcessResult{Stdout: []byte("diff --git a/tracked b/tracked\n")}, nil
 	}
-	return loopruntime.ProcessResult{}, fmt.Errorf("unexpected git arguments %v", request.Args)
+	return rctruntime.ProcessResult{}, fmt.Errorf("unexpected git arguments %v", request.Args)
 }
 
 func TestBuildCodeReviewSubjectReadsUnquotedUntrackedPaths(t *testing.T) {
@@ -312,7 +312,7 @@ func TestExecuteImplementationStopsAtVerificationLimit(t *testing.T) {
 func implementationFixture(
 	t *testing.T,
 	gateway providers.Gateway,
-	runner loopruntime.ProcessRunner,
+	runner rctruntime.ProcessRunner,
 ) (*Service, domain.Run) {
 	t.Helper()
 	project := t.TempDir()

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hironeko/loop-engine/internal/domain"
-	"github.com/hironeko/loop-engine/internal/store/filesystem"
+	"github.com/hironeko/rct/internal/domain"
+	"github.com/hironeko/rct/internal/store/filesystem"
 )
 
 func TestApproveRecordsAndConsumesPlanAuthorization(t *testing.T) {
@@ -134,7 +134,7 @@ func TestApproveAllowsOnlyOneConcurrentRevisionTransition(t *testing.T) {
 	}
 	approvalFiles, err := filepath.Glob(filepath.Join(
 		run.Project,
-		".loop-engine",
+		".rct",
 		"runs",
 		run.ID,
 		"approvals",
@@ -180,7 +180,7 @@ func approvalFixture(t *testing.T) (*Service, domain.Run) {
 	}
 	run.PlanPath = planPath
 	run.PlanReview = filepath.ToSlash(filepath.Join(
-		".loop-engine", "runs", run.ID, "reviews", "plan-v001.json",
+		".rct", "runs", run.ID, "reviews", "plan-v001.json",
 	))
 	run.PlanSHA256 = sha256Hex(plan)
 	run.ApprovalTargetHash = run.PlanSHA256

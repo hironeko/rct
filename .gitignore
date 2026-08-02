@@ -1,5 +1,5 @@
 .DS_Store
 bin/
 coverage.out
-.loop-engine/
+.rct/
 docs/reviews/

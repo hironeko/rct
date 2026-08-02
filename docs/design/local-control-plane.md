@@ -1,10 +1,10 @@
 # Local Browser Control Plane 詳細設計
 
-- 文書版: 0.2.1-draft
+- 文書版: 0.3.0-draft
 - 作成日: 2026-08-02
-- 対応要件: `docs/requirements.md` 0.8.2-draft FR-190〜FR-214
+- 対応要件: `docs/requirements.md` 0.9.0-draft FR-190〜FR-214
 - 対応ADR: `docs/architecture.md` ADR-010
-- 状態: Claude Review approved、RC-031〜RC-035反映済み
+- 状態: 設計完了（実装未着手）
 
 ## 1. 目的
 
@@ -14,7 +14,7 @@ CLIを知らない利用者でも、ローカルブラウザから次を実行�
 - 新しいProject Directoryを安全に作る
 - 新規要望またはApplication Briefを入力する
 - Markdownとしてローカルへ保存する
-- 保存済みRequestからLoop Engine Runを開始する
+- 保存済みRequestからrct Runを開始する
 - CLIと同じRun Stateと主要Artifactを確認する
 
 Browserは新しいWorkflow Engineではない。CLIとBrowserは同じApplication Serviceへの
@@ -41,7 +41,7 @@ Inbound Adapterであり、正式状態は既存のState Store、Artifact Store�
 
 ```text
 ┌─────────────────────────────────────────────────────┐
-│ Loop Engine                                         │
+│ rct                                         │
 │ Turn a rough request into a reviewed implementation │
 │                                                     │
 │ [ New request ]          [ New application ]        │
@@ -132,7 +132,7 @@ Browser
 禁止:
 
 - Provider CLIの直接起動
-- `exec.Command("loop-engine", ...)`
+- `exec.Command("rct", ...)`
 - Workflow Stateの直接書換
 - Absolute Path文字列の無検証利用
 
@@ -277,7 +277,7 @@ Server所有のRun ManagerがRun単位ContextとCancel Functionを管理する�
 project/
 ├── requests/
 │   └── 20260802T120000Z-add-export.md
-└── .loop-engine/
+└── .rct/
     ├── intakes/
     │   └── intake_<id>/
     │       ├── intake.json
@@ -291,7 +291,7 @@ project/
 workspace/
 └── application-slug/
     ├── request.md
-    └── .loop-engine/
+    └── .rct/
         ├── intakes/
         └── runs/
 ```
@@ -510,7 +510,7 @@ Client StateはForm Draftと表示中Runだけに限定する。正式なIntake/
 ## 10. CLI
 
 ```text
-loop-engine serve \
+rct serve \
   --workspace-root /Users/example/Work \
   --listen 127.0.0.1:0 \
   --open

@@ -1,16 +1,15 @@
-# Loop Engine アーキテクチャ設計書
+# rct アーキテクチャ設計書
 
-- 文書版: 0.7.2-draft
+- 文書版: 0.8.0-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.8.3-draft
-- Draft拡張注記: Document Artifact移行方針とApproval Gate責務分離を含む。
-  独立Review承認後にDraft表記を更新する
+- 対応要件: `requirements.md` 0.9.0-draft
+- Draft拡張注記: Document Artifact移行方針、Approval Gate責務分離、rct名称移行を含む。
 - 実装言語: Go
 - 対象OS: macOS / Linux
 
 ## 1. 設計方針
 
-Loop Engineは、生成AI同士を直接再帰的に呼び合わせるシステムではなく、中央のWorkflow Engineが各Agent Jobを順次制御するオーケストレーターとして設計する。
+rctは、生成AI同士を直接再帰的に呼び合わせるシステムではなく、中央のWorkflow Engineが各Agent Jobを順次制御するオーケストレーターとして設計する。
 
 設計上の原則は次のとおりとする。
 
@@ -42,8 +41,8 @@ Loop Engineは、生成AI同士を直接再帰的に呼び合わせるシステ�
 
 ```mermaid
 flowchart LR
-    U["利用者"] --> CLI["Loop Engine CLI"]
-    CLI --> CORE["Loop Engine Core"]
+    U["利用者"] --> CLI["rct CLI"]
+    CLI --> CORE["rct Core"]
     CORE --> CODEX["Codex CLI"]
     CORE --> CLAUDE["Claude Code"]
     CORE --> PROJECT["対象プロジェクト"]
@@ -55,7 +54,7 @@ flowchart LR
     CLAUDE --> PROJECT
 ```
 
-Loop EngineはCodex CLIとClaude Codeの既存認証を利用する。認証トークンやAPIキーを直接保持しない。
+rctはCodex CLIとClaude Codeの既存認証を利用する。認証トークンやAPIキーを直接保持しない。
 
 ## 3. 論理アーキテクチャ
 
@@ -461,7 +460,7 @@ jobs/<job-id>/
   ],
   "constraints": {
     "write_scope": [
-      ".loop-engine/runs/<run-id>/artifacts"
+      ".rct/runs/<run-id>/artifacts"
     ],
     "timeout_seconds": 900
   }
@@ -499,10 +498,10 @@ jobs/<job-id>/
 4. Run IDとJob IDが一致する
 5. 必須成果物が存在する
 6. 宣言されたSHA-256が実ファイルと一致する
-7. Loop Engineが成果物をArtifact Storeの版管理パスへ確定した
-8. `done` マーカーをLoop Engine自身が原子的に作成した
+7. rctが成果物をArtifact Storeの版管理パスへ確定した
+8. `done` マーカーをrct自身が原子的に作成した
 
-Agent自身に `done` を作成させない。Loop Engineが検証後に作成する。
+Agent自身に `done` を作成させない。rctが検証後に作成する。
 
 ## 8. Provider Adapter
 
@@ -582,7 +581,7 @@ MVPで利用可能なProviderがCodexとClaude Codeの二つだけの場合、De
 ### 8.6 Direct実行仕様
 
 DesignerおよびReviewerは、どちらのProviderでも読取専用で実行する。成果物はAgent自身にProjectへ
-書かせず、構造化出力をLoop Engineが検証してRun Directoryへ保存する。ImplementerだけはHuman
+書かせず、構造化出力をrctが検証してRun Directoryへ保存する。ImplementerだけはHuman
 Authorization済みPlanの一つのMilestoneに対してWorkspace writeを許可する。
 
 Codex:
@@ -618,7 +617,7 @@ claude
 
 Implementer JobではCodexを`--sandbox workspace-write`、Claude Codeを
 `--permission-mode acceptEdits --tools=Read,Glob,Grep,Edit,Write`で起動する。Claude Implementerの
-Verification command実行はLoop Engineへ集約する。Job前後でGit HEADと
+Verification command実行はrctへ集約する。Job前後でGit HEADと
 Indexを検査し、CommitまたはStageを検出した場合はRunを失敗させる。Reviewer Jobは上記の読取専用
 Profileを維持する。
 
@@ -691,7 +690,7 @@ loop-<short-run-id>-reviewer
 - tmux入力はAgent操作のトリガーに限定する
 - `capture-pane` は診断と人間表示に用いる
 - 承認、Job ID、成果物ハッシュを画面文字列から抽出しない
-- Loop Engineが作成したSessionへOwner Metadataを保存する
+- rctが作成したSessionへOwner Metadataを保存する
 - `stop` は所有するSessionだけを終了対象にする
 
 ### 9.5 Direct Backend
@@ -764,7 +763,7 @@ Verification Runnerが実行できるのは `approved` または `user_configure
 ### 11.1 保存モデル
 
 ```text
-<project>/.loop-engine/
+<project>/.rct/
 ├── current-run
 └── runs/<run-id>/
     ├── state.json
@@ -926,7 +925,7 @@ Project Profile由来の根拠と利用者の明示承認を永続化する拡�
 | 能力 | Designer役割 | Implementer役割 | Reviewer役割 |
 |---|---:|---:|---:|
 | プロジェクト読取 | 可 | 可 | 可 |
-| `.loop-engine` 成果物書込 | 可 | 可 | Reviewsのみ |
+| `.rct` 成果物書込 | 可 | 可 | Reviewsのみ |
 | ソース変更 | 不可 | 可 | 不可 |
 | Verification実行 | 調査のみ | 可 | 原則不可 |
 | Git変更操作 | 不可 | 制限付き | 不可 |
@@ -981,7 +980,7 @@ implementation = "60m"
 verification = "30m"
 
 [artifacts]
-directory = ".loop-engine"
+directory = ".rct"
 
 [git]
 require_clean_worktree = true
@@ -1030,11 +1029,11 @@ Role ContractとSkillをGo binaryへ埋め込み、Direct JobではProvider共�
 
 ### 17.2 配布
 
-Loop Engineは次をサポートする。
+rctは次をサポートする。
 
-- `loop-engine install-assets`
-- `loop-engine doctor --assets`
-- `loop-engine update-assets`
+- `rct install-assets`
+- `rct doctor --assets`
+- `rct update-assets`
 
 配置先はProvider Adapterが決定する。dotfilesではコマンドを呼び出すだけとし、Provider固有パスをdotfilesへ重複記述しない。
 
@@ -1045,7 +1044,7 @@ MVPでは、グローバルSkillの自動変更前に変更対象を表示する
 ### 18.1 Start
 
 ```text
-loop-engine start --request "..." [--execute] [options]
+rct start --request "..." [--execute] [options]
 ```
 
 処理:
@@ -1066,14 +1065,14 @@ loop-engine start --request "..." [--execute] [options]
 Planningだけを再開する場合は次を使用する。
 
 ```text
-loop-engine plan --project <path> [--max-review-rounds 3]
+rct plan --project <path> [--max-review-rounds 3]
 ```
 
 Supervised modeではPlan Gate通過後にHash固定のHuman Authorizationを記録し、実装を開始する。
 
 ```text
-loop-engine approve --project <path> --by <identifier> [--note "..."]
-loop-engine implement --project <path> \
+rct approve --project <path> --by <identifier> [--note "..."]
+rct implement --project <path> \
   --max-review-rounds 3 \
   --max-verification-attempts 3
 ```
@@ -1085,7 +1084,7 @@ loop-engine implement --project <path> \
 ### 18.2 Status
 
 ```text
-loop-engine status [--run <id>] [--json]
+rct status [--run <id>] [--json]
 ```
 
 表示例:
@@ -1105,7 +1104,7 @@ Claude: working
 ### 18.3 Resume
 
 ```text
-loop-engine resume [--run <id>]
+rct resume [--run <id>]
 ```
 
 Resumeは必ずRecovery Planを表示またはログへ記録する。
@@ -1121,9 +1120,9 @@ Recovery action: restart review job as attempt 2
 ### 18.4 Human Gate
 
 ```text
-loop-engine approve [--run <id>] [--note "..."]
-loop-engine reject [--run <id>] --reason "..."
-loop-engine answer [--run <id>] --question <id> --text "..."
+rct approve [--run <id>] [--note "..."]
+rct reject [--run <id>] --reason "..."
+rct answer [--run <id>] --question <id> --text "..."
 ```
 
 `approve`は現在のStateが`AWAITING_IMPLEMENTATION_APPROVAL`などの明示的な
@@ -1263,9 +1262,9 @@ Fake Providerを使い、次を検証する。
 ## 22. Repository構成
 
 ```text
-loop-engine/
+rct/
 ├── cmd/
-│   └── loop-engine/
+│   └── rct/
 │       └── main.go
 ├── internal/
 │   ├── app/
@@ -1330,10 +1329,10 @@ loop-engine/
 GitHub Releasesで次を配布する。
 
 ```text
-loop-engine_<version>_darwin_arm64.tar.gz
-loop-engine_<version>_darwin_amd64.tar.gz
-loop-engine_<version>_linux_arm64.tar.gz
-loop-engine_<version>_linux_amd64.tar.gz
+rct_<version>_darwin_arm64.tar.gz
+rct_<version>_darwin_amd64.tar.gz
+rct_<version>_linux_arm64.tar.gz
+rct_<version>_linux_amd64.tar.gz
 checksums.txt
 ```
 
@@ -1352,10 +1351,10 @@ dotfiles Installerの責務:
 - Archive取得
 - Checksum検証
 - `~/.local/bin` などへの配置
-- `loop-engine install-assets` の呼び出し
+- `rct install-assets` の呼び出し
 - 任意のHerdr Plugin登録
 
-dotfilesはLoop Engineの内部ファイルを直接複製しない。
+dotfilesはrctの内部ファイルを直接複製しない。
 
 ## 24. 技術検証項目
 
@@ -1380,7 +1379,7 @@ Spike結果によりProvider AdapterとRuntime Backendの詳細だけを調整�
 ### ADR-001: Herdrを必須依存にしない
 
 - 決定: Herdr、tmux、DirectをRuntime Backendとして分離する
-- 理由: Loop Engineの利用可能環境を広げ、Herdrへのロックインを避ける
+- 理由: rctの利用可能環境を広げ、Herdrへのロックインを避ける
 - 影響: BackendごとのAdapterとContract Testが必要になる
 
 ### ADR-002: ターミナル出力を正式成果物にしない
@@ -1397,7 +1396,7 @@ Spike結果によりProvider AdapterとRuntime Backendの詳細だけを調整�
 
 ### ADR-004: 中央制御型Workflow
 
-- 決定: CodexとClaudeを直接相互呼び出しさせず、Loop Engineが順序を制御する
+- 決定: CodexとClaudeを直接相互呼び出しさせず、rctが順序を制御する
 - 理由: 無限ループ、競合、古い結果の誤適用を防ぐ
 - 影響: Workflow StateとJob Protocolが必要になる
 
@@ -1445,7 +1444,7 @@ Spike結果によりProvider AdapterとRuntime Backendの詳細だけを調整�
 
 ### ADR-010: Local Browser Control PlaneをInbound Adapterとして追加する
 
-- 決定: `loop-engine serve`がLoopback HTTP Serverと埋込UIを提供し、CLIと同じ
+- 決定: `rct serve`がLoopback HTTP Serverと埋込UIを提供し、CLIと同じ
   Application Serviceを呼び出す。Web HandlerからCLI Binaryを再実行せず、Browser専用の
   Workflow State Machineを作らない
 - File System境界: 起動時に明示したWorkspace RootをCapabilityとして扱い、Browserは
@@ -1492,7 +1491,7 @@ Coreを変更せず、次をAdapterとして追加可能にする。
 - Artifact ProtocolとReview Schemaの方向性が承認されている
 - Supervisedモードの人間ゲート位置が承認されている
 - 技術検証項目の実施順が合意されている
-- `.loop-engine/` のGit管理方針が決定している
+- `.rct/` のGit管理方針が決定している
 - Designer/Implementer/Reviewerへの役割割当ルール（Reviewerの同一Provider兼任禁止、全RoleのSession分離）が承認されている
 
 ## 28. 参考仕様

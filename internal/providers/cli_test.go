@@ -9,19 +9,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hironeko/loop-engine/internal/domain"
-	loopruntime "github.com/hironeko/loop-engine/internal/runtime"
+	"github.com/hironeko/rct/internal/domain"
+	rctruntime "github.com/hironeko/rct/internal/runtime"
 )
 
 type fakeRunner struct {
-	request loopruntime.ProcessRequest
-	run     func(loopruntime.ProcessRequest) (loopruntime.ProcessResult, error)
+	request rctruntime.ProcessRequest
+	run     func(rctruntime.ProcessRequest) (rctruntime.ProcessResult, error)
 }
 
 func (f *fakeRunner) Run(
 	_ context.Context,
-	request loopruntime.ProcessRequest,
-) (loopruntime.ProcessResult, error) {
+	request rctruntime.ProcessRequest,
+) (rctruntime.ProcessResult, error) {
 	f.request = request
 	return f.run(request)
 }
@@ -32,7 +32,7 @@ func TestCLIGatewayExecutesCodexWithReadOnlyStructuredOutput(t *testing.T) {
 	jobDir := t.TempDir()
 	expected := []byte(`{"schema_version":"1.0"}`)
 	runner := &fakeRunner{
-		run: func(request loopruntime.ProcessRequest) (loopruntime.ProcessResult, error) {
+		run: func(request rctruntime.ProcessRequest) (rctruntime.ProcessResult, error) {
 			outputIndex := slices.Index(request.Args, "--output-last-message")
 			if outputIndex < 0 || outputIndex+1 >= len(request.Args) {
 				t.Fatal("Codex args do not contain output path")
@@ -40,7 +40,7 @@ func TestCLIGatewayExecutesCodexWithReadOnlyStructuredOutput(t *testing.T) {
 			if err := os.WriteFile(request.Args[outputIndex+1], expected, 0o600); err != nil {
 				t.Fatalf("write fake Codex output: %v", err)
 			}
-			return loopruntime.ProcessResult{Stdout: expected}, nil
+			return rctruntime.ProcessResult{Stdout: expected}, nil
 		},
 	}
 
@@ -69,7 +69,7 @@ func TestCLIGatewayExecutesCodexImplementerWithWorkspaceWrite(t *testing.T) {
 
 	expected := []byte(`{"schema_version":"1.0","milestone_id":"M01"}`)
 	runner := &fakeRunner{
-		run: func(request loopruntime.ProcessRequest) (loopruntime.ProcessResult, error) {
+		run: func(request rctruntime.ProcessRequest) (rctruntime.ProcessResult, error) {
 			outputIndex := slices.Index(request.Args, "--output-last-message")
 			if outputIndex < 0 || outputIndex+1 >= len(request.Args) {
 				t.Fatal("Codex args do not contain output path")
@@ -77,7 +77,7 @@ func TestCLIGatewayExecutesCodexImplementerWithWorkspaceWrite(t *testing.T) {
 			if err := os.WriteFile(request.Args[outputIndex+1], expected, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			return loopruntime.ProcessResult{}, nil
+			return rctruntime.ProcessResult{}, nil
 		},
 	}
 	_, err := NewCLIGateway(runner).Execute(context.Background(), Job{
@@ -110,8 +110,8 @@ func TestCLIGatewayExtractsClaudeStructuredOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{
-		run: func(loopruntime.ProcessRequest) (loopruntime.ProcessResult, error) {
-			return loopruntime.ProcessResult{Stdout: envelope}, nil
+		run: func(rctruntime.ProcessRequest) (rctruntime.ProcessResult, error) {
+			return rctruntime.ProcessResult{Stdout: envelope}, nil
 		},
 	}
 
@@ -150,8 +150,8 @@ func TestCLIGatewayConfiguresClaudeImplementerTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{
-		run: func(loopruntime.ProcessRequest) (loopruntime.ProcessResult, error) {
-			return loopruntime.ProcessResult{Stdout: envelope}, nil
+		run: func(rctruntime.ProcessRequest) (rctruntime.ProcessResult, error) {
+			return rctruntime.ProcessResult{Stdout: envelope}, nil
 		},
 	}
 	_, err = NewCLIGateway(runner).Execute(context.Background(), Job{
@@ -185,8 +185,8 @@ func TestCLIGatewayRejectsOutputThatDoesNotSatisfySchema(t *testing.T) {
 	}
 	jobDir := t.TempDir()
 	runner := &fakeRunner{
-		run: func(loopruntime.ProcessRequest) (loopruntime.ProcessResult, error) {
-			return loopruntime.ProcessResult{Stdout: envelope}, nil
+		run: func(rctruntime.ProcessRequest) (rctruntime.ProcessResult, error) {
+			return rctruntime.ProcessResult{Stdout: envelope}, nil
 		},
 	}
 
@@ -220,9 +220,9 @@ func TestCLIGatewayRejectsInvalidOutputSchemaBeforeExecution(t *testing.T) {
 
 	called := false
 	runner := &fakeRunner{
-		run: func(loopruntime.ProcessRequest) (loopruntime.ProcessResult, error) {
+		run: func(rctruntime.ProcessRequest) (rctruntime.ProcessResult, error) {
 			called = true
-			return loopruntime.ProcessResult{}, nil
+			return rctruntime.ProcessResult{}, nil
 		},
 	}
 	_, err := NewCLIGateway(runner).Execute(context.Background(), Job{
@@ -246,8 +246,8 @@ func TestCLIGatewayDoesNotFallbackToCodexStdout(t *testing.T) {
 	t.Parallel()
 
 	runner := &fakeRunner{
-		run: func(loopruntime.ProcessRequest) (loopruntime.ProcessResult, error) {
-			return loopruntime.ProcessResult{
+		run: func(rctruntime.ProcessRequest) (rctruntime.ProcessResult, error) {
+			return rctruntime.ProcessResult{
 				Stdout: []byte(`{"schema_version":"1.0"}`),
 			}, nil
 		},

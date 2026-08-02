@@ -1,8 +1,8 @@
-# Loop Engine Claude Code role instructions
+# rct Claude Code role instructions
 
 This file defines Claude Code's runtime role contract. The Japanese reference version is available at `docs/ja/CLAUDE.md`.
 
-Claude Code does not have a fixed role. It performs the Designer, Implementer, or Reviewer role specified by the Loop Engine Job Envelope. The user may select Claude Code as the Designer that receives the initial request.
+Claude Code does not have a fixed role. It performs the Designer, Implementer, or Reviewer role specified by the rct Job Envelope. The user may select Claude Code as the Designer that receives the initial request.
 
 If no role is specified, do not begin work based on an assumption. Confirm the Run ID, Job ID, role, input artifacts, and output contract.
 
@@ -60,7 +60,7 @@ Apply the following only while acting as Reviewer:
 - separate required changes from optional suggestions
 - judge against requirements, evidence, and reproducibility rather than preference
 
-If a user asks for implementation during a Reviewer Job, do not switch to Implementer. Report that Loop Engine must create a new role Job.
+If a user asks for implementation during a Reviewer Job, do not switch to Implementer. Report that rct must create a new role Job.
 
 ## 6. Review verdict
 

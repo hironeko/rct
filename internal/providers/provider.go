@@ -3,7 +3,7 @@ package providers
 import (
 	"context"
 
-	"github.com/hironeko/loop-engine/internal/domain"
+	"github.com/hironeko/rct/internal/domain"
 )
 
 type AccessMode string

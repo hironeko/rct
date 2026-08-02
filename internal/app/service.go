@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hironeko/loop-engine/internal/domain"
-	"github.com/hironeko/loop-engine/internal/providers"
-	loopruntime "github.com/hironeko/loop-engine/internal/runtime"
-	"github.com/hironeko/loop-engine/internal/store/filesystem"
+	"github.com/hironeko/rct/internal/domain"
+	"github.com/hironeko/rct/internal/providers"
+	rctruntime "github.com/hironeko/rct/internal/runtime"
+	"github.com/hironeko/rct/internal/store/filesystem"
 )
 
 type Dependencies struct {
@@ -28,7 +28,7 @@ type Dependencies struct {
 	Agent         providers.Gateway
 	JobTimeout    time.Duration
 	ProviderAuth  func(context.Context, domain.Provider) error
-	ProcessRunner loopruntime.ProcessRunner
+	ProcessRunner rctruntime.ProcessRunner
 }
 
 func DefaultDependencies() Dependencies {
@@ -37,10 +37,10 @@ func DefaultDependencies() Dependencies {
 		Getenv:        os.Getenv,
 		Now:           time.Now,
 		Random:        rand.Reader,
-		Agent:         providers.NewCLIGateway(loopruntime.DirectProcessRunner{}),
+		Agent:         providers.NewCLIGateway(rctruntime.DirectProcessRunner{}),
 		JobTimeout:    15 * time.Minute,
 		ProviderAuth:  probeProviderAuth,
-		ProcessRunner: loopruntime.DirectProcessRunner{},
+		ProcessRunner: rctruntime.DirectProcessRunner{},
 	}
 }
 
@@ -48,7 +48,7 @@ type Service struct {
 	deps       Dependencies
 	agent      providers.Gateway
 	jobTimeout time.Duration
-	runner     loopruntime.ProcessRunner
+	runner     rctruntime.ProcessRunner
 }
 
 func NewService(deps Dependencies) *Service {
@@ -65,7 +65,7 @@ func NewService(deps Dependencies) *Service {
 		deps.Random = rand.Reader
 	}
 	if deps.Agent == nil {
-		deps.Agent = providers.NewCLIGateway(loopruntime.DirectProcessRunner{})
+		deps.Agent = providers.NewCLIGateway(rctruntime.DirectProcessRunner{})
 	}
 	if deps.JobTimeout <= 0 {
 		deps.JobTimeout = 15 * time.Minute
@@ -74,7 +74,7 @@ func NewService(deps Dependencies) *Service {
 		deps.ProviderAuth = probeProviderAuth
 	}
 	if deps.ProcessRunner == nil {
-		deps.ProcessRunner = loopruntime.DirectProcessRunner{}
+		deps.ProcessRunner = rctruntime.DirectProcessRunner{}
 	}
 	return &Service{
 		deps:       deps,
@@ -138,12 +138,12 @@ func (s *Service) Start(_ context.Context, options StartOptions) (domain.Run, er
 		}
 	}
 
-	requestedBackend, err := loopruntime.ParseBackend(options.Backend)
+	requestedBackend, err := rctruntime.ParseBackend(options.Backend)
 	if err != nil {
 		return domain.Run{}, err
 	}
 	probe := s.probeRuntime()
-	backend, err := loopruntime.Select(requestedBackend, probe)
+	backend, err := rctruntime.Select(requestedBackend, probe)
 	if err != nil {
 		return domain.Run{}, err
 	}
@@ -169,23 +169,23 @@ func (s *Service) Start(_ context.Context, options StartOptions) (domain.Run, er
 				Role:      domain.RoleDesigner,
 				Provider:  roles.Designer,
 				RoleID:    string(domain.RoleDesigner),
-				SessionID: "loop-" + shortID + "-designer",
+				SessionID: "rct-" + shortID + "-designer",
 			},
 			domain.RoleImplementer: {
 				Role:      domain.RoleImplementer,
 				Provider:  roles.Implementer,
 				RoleID:    string(domain.RoleImplementer),
-				SessionID: "loop-" + shortID + "-implementer",
+				SessionID: "rct-" + shortID + "-implementer",
 			},
 			domain.RoleReviewer: {
 				Role:      domain.RoleReviewer,
 				Provider:  roles.Reviewer,
 				RoleID:    string(domain.RoleReviewer),
-				SessionID: "loop-" + shortID + "-reviewer",
+				SessionID: "rct-" + shortID + "-reviewer",
 			},
 		},
 		RequestPath: filepath.ToSlash(
-			filepath.Join(".loop-engine", "runs", runID, "request.md"),
+			filepath.Join(".rct", "runs", runID, "request.md"),
 		),
 		MaxReviewRounds: 3,
 		CreatedAt:       now,
@@ -219,7 +219,7 @@ type DoctorReport struct {
 	Healthy bool                  `json:"healthy"`
 	Backend string                `json:"backend,omitempty"`
 	Roles   *domain.ResolvedRoles `json:"roles,omitempty"`
-	Runtime loopruntime.Probe     `json:"runtime"`
+	Runtime rctruntime.Probe      `json:"runtime"`
 	Checks  []DiagnosticCheck     `json:"checks"`
 }
 
@@ -278,11 +278,11 @@ func (s *Service) Doctor(ctx context.Context, options DoctorOptions) DoctorRepor
 		}
 	}
 
-	requested, backendParseErr := loopruntime.ParseBackend(options.Backend)
+	requested, backendParseErr := rctruntime.ParseBackend(options.Backend)
 	if backendParseErr != nil {
 		add("backend", false, true, backendParseErr.Error())
 	} else {
-		selected, selectErr := loopruntime.Select(requested, report.Runtime)
+		selected, selectErr := rctruntime.Select(requested, report.Runtime)
 		add("backend", selectErr == nil, true, detail(selectErr, string(selected)))
 		if selectErr == nil {
 			report.Backend = string(selected)
@@ -317,12 +317,12 @@ func probeProviderAuth(ctx context.Context, provider domain.Provider) error {
 	return nil
 }
 
-func (s *Service) probeRuntime() loopruntime.Probe {
+func (s *Service) probeRuntime() rctruntime.Probe {
 	_, herdrErr := s.deps.LookPath("herdr")
 	_, tmuxErr := s.deps.LookPath("tmux")
 	managed := s.deps.Getenv("HERDR_ENV") == "1" ||
 		strings.TrimSpace(s.deps.Getenv("HERDR_SOCKET_PATH")) != ""
-	return loopruntime.Probe{
+	return rctruntime.Probe{
 		HerdrBinary:  herdrErr == nil,
 		HerdrManaged: managed,
 		TmuxBinary:   tmuxErr == nil,

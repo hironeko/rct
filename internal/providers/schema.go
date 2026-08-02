@@ -7,7 +7,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-const outputSchemaLocation = "urn:loop-engine:job-output-schema"
+const outputSchemaLocation = "urn:rct:job-output-schema"
 
 func compileOutputSchema(data []byte) (*jsonschema.Schema, error) {
 	document, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))

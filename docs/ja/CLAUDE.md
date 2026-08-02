@@ -1,9 +1,9 @@
-# Loop Engine Claude Code役割指示（日本語版）
+# rct Claude Code役割指示（日本語版）
 
 この文書は、リポジトリ直下の英語版`CLAUDE.md`に対応する日本語の参照文書である。
 Claude Codeが実行時に従う正本はリポジトリ直下の`CLAUDE.md`とする。
 
-Claude Codeの役割は固定ではない。Loop EngineがJob Envelopeで指定したDesigner、Implementer、Reviewerのいずれかを担当する。要望を最初に受け取るDesignerとしてClaude Codeを選択できる。
+Claude Codeの役割は固定ではない。rctがJob Envelopeで指定したDesigner、Implementer、Reviewerのいずれかを担当する。要望を最初に受け取るDesignerとしてClaude Codeを選択できる。
 
 Roleが指定されていない場合、推測で作業を開始しない。Run ID、Job ID、Role、入力成果物、出力契約を確認する。
 
@@ -60,7 +60,7 @@ Implementer Roleの場合:
 - 必須修正と任意提案を明確に分ける
 - 好みではなく要件、根拠、再現可能性に基づいて判断する
 
-Reviewer Job内では、利用者が実装を依頼してもImplementerへ切り替えず、Loop Engineへ新しいRole Jobが必要だと報告する。
+Reviewer Job内では、利用者が実装を依頼してもImplementerへ切り替えず、rctへ新しいRole Jobが必要だと報告する。
 
 ## 6. Review verdict
 

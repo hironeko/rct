@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hironeko/loop-engine/internal/app"
-	"github.com/hironeko/loop-engine/internal/domain"
-	"github.com/hironeko/loop-engine/internal/providers"
+	"github.com/hironeko/rct/internal/app"
+	"github.com/hironeko/rct/internal/domain"
+	"github.com/hironeko/rct/internal/providers"
 )
 
 type cliGateway struct {
@@ -57,7 +57,7 @@ func TestStartDesignerClaude(t *testing.T) {
 		"--project", t.TempDir(),
 		"--backend", "direct",
 		"--designer", "claude",
-		"--request", "Build the loop engine",
+		"--request", "Build rct",
 	})
 	if exitCode != 0 {
 		t.Fatalf("Run() exit code = %d, stderr = %q", exitCode, stderr.String())
@@ -97,7 +97,7 @@ func TestStartExecuteRunsDesignWorkflow(t *testing.T) {
 	runID := "run_20260729T120000Z_010203040506"
 	requirements := []byte(`{
 		"schema_version":"1.0",
-		"title":"Loop Engine",
+		"title":"rct",
 		"summary":"Summary",
 		"problem_statement":"Problem",
 		"goals":["Goal"],
@@ -117,7 +117,7 @@ func TestStartExecuteRunsDesignWorkflow(t *testing.T) {
 	hashData := append(append([]byte{}, requirements...), '\n')
 	subjectHash := sha256.Sum256(hashData)
 	subjectPath := filepath.ToSlash(filepath.Join(
-		".loop-engine",
+		".rct",
 		"runs",
 		runID,
 		"artifacts",
@@ -164,7 +164,7 @@ func TestStartExecuteRunsDesignWorkflow(t *testing.T) {
 		"--project", t.TempDir(),
 		"--backend", "direct",
 		"--mode", "design-only",
-		"--request", "Build the loop engine",
+		"--request", "Build rct",
 		"--execute",
 		"--until", "requirements",
 	})

@@ -1,18 +1,18 @@
-# Loop Engine
+# rct
 
-Loop Engine is a local orchestrator for AI-assisted software development. It turns a rough request into a structured workflow for requirements, architecture, implementation planning, implementation, verification, review, and revision.
+rct is a local orchestrator for AI-assisted software development. It turns a rough request into a structured workflow for requirements, architecture, implementation planning, implementation, verification, review, and revision.
 
 Codex and Claude Code do not call each other recursively. A central workflow engine written in Go assigns roles, invokes each provider, validates artifacts, evaluates approval gates, and persists the state required to continue safely.
 
 ## Concept preview
 
-The local browser control plane is currently a reviewed design target, not a released interface. The capture below shows the intended entry point for creating a request or a new application.
+The local browser control plane is currently a documented design target, not a released interface. The capture below shows the intended entry point for creating a request or a new application.
 
-![Loop Engine local control plane concept showing New request, New application, and recent runs](docs/assets/control-plane-concept.jpg)
+![rct local control plane concept showing New request, New application, and recent runs](docs/assets/rct-control-plane-concept.png)
 
 ## How it works
 
-Loop Engine separates the workflow into three independent roles:
+rct separates the workflow into three independent roles:
 
 - **Designer** — clarifies the request and produces requirements, architecture, and implementation plans.
 - **Implementer** — implements one approved milestone at a time and addresses required changes.
@@ -47,12 +47,12 @@ Rough request
 - Claude Code CLI installed and authenticated
 - Go 1.23 or later when building from source
 
-Herdr and tmux are optional. Loop Engine can fall back to direct process execution when neither is available.
+Herdr and tmux are optional. rct can fall back to direct process execution when neither is available.
 
 ## Build from source
 
 ```bash
-go build -o bin/loop-engine ./cmd/loop-engine
+go build -o bin/rct ./cmd/rct
 ```
 
 The resulting binary does not require a Go runtime on the target machine.
@@ -62,13 +62,13 @@ The resulting binary does not require a Go runtime on the target machine.
 Check the local environment first:
 
 ```bash
-bin/loop-engine doctor --backend direct
+bin/rct doctor --backend direct
 ```
 
 Start the requirements, architecture, and implementation-plan loops from a Markdown request:
 
 ```bash
-bin/loop-engine start \
+bin/rct start \
   --project /path/to/project \
   --backend direct \
   --mode supervised \
@@ -81,12 +81,12 @@ bin/loop-engine start \
 After the plan is independently approved, authorize its exact SHA-256 and run the milestone loop:
 
 ```bash
-bin/loop-engine approve \
+bin/rct approve \
   --project /path/to/project \
   --by "$USER" \
   --note "Approved for implementation"
 
-bin/loop-engine implement \
+bin/rct implement \
   --project /path/to/project \
   --max-review-rounds 3 \
   --max-verification-attempts 3
@@ -94,13 +94,13 @@ bin/loop-engine implement \
 
 Implementation starts only from a clean Git worktree. Each milestone is implemented, verified with the
 approved executable-and-argument arrays, independently code-reviewed, and remediated when required. After all
-milestones pass, Loop Engine reruns the complete verification set and performs a final independent review of the
+milestones pass, rct reruns the complete verification set and performs a final independent review of the
 cumulative diff before marking the run completed.
 
 To start with Claude Code as the Designer and Codex as the Reviewer:
 
 ```bash
-bin/loop-engine start \
+bin/rct start \
   --project /path/to/project \
   --backend direct \
   --mode design-only \
@@ -116,16 +116,16 @@ participate in backend detection; managed-session execution and resume remain se
 ## Commands
 
 ```text
-loop-engine start
-loop-engine plan
-loop-engine approve
-loop-engine implement
-loop-engine doctor
-loop-engine status
-loop-engine version
+rct start
+rct plan
+rct approve
+rct implement
+rct doctor
+rct status
+rct version
 ```
 
-Run `loop-engine help` for the command overview.
+Run `rct help` for the command overview.
 
 ## Runtime backends
 
@@ -139,7 +139,7 @@ Runtime backends only control processes and sessions. They do not define workflo
 
 ## Approval model
 
-Loop Engine deliberately separates three decisions:
+rct deliberately separates three decisions:
 
 1. **Reviewer approval** confirms that the current artifact has no required changes or unresolved questions.
 2. **Gate pass** confirms deterministic conditions such as schema validity, subject identity, provider separation, and required verification.
@@ -152,7 +152,7 @@ An `approved` string from an agent is therefore not sufficient by itself to adva
 Run data is stored under the target project:
 
 ```text
-.loop-engine/runs/<run-id>/
+.rct/runs/<run-id>/
 ├── artifacts/
 ├── jobs/
 ├── reviews/
@@ -182,7 +182,7 @@ The current product and architecture documents are maintained in Japanese:
 ```bash
 go test ./...
 go vet ./...
-go build ./cmd/loop-engine
+go build ./cmd/rct
 ```
 
 Changes should be committed as focused units with titles that describe the implemented capability or fix.

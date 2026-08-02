@@ -11,12 +11,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hironeko/loop-engine/internal/app"
-	"github.com/hironeko/loop-engine/internal/domain"
-	"github.com/hironeko/loop-engine/internal/store/filesystem"
+	"github.com/hironeko/rct/internal/app"
+	"github.com/hironeko/rct/internal/domain"
+	"github.com/hironeko/rct/internal/store/filesystem"
 )
 
-const Version = "0.4.0-dev"
+const Version = "0.5.0-dev"
 
 type CLI struct {
 	service *app.Service
@@ -199,7 +199,7 @@ func (c *CLI) runPlan(ctx context.Context, args []string) int {
 	fmt.Fprintf(c.stdout, "Architecture: %s\n", run.ArchitecturePath)
 	fmt.Fprintf(c.stdout, "Plan: %s\n", run.PlanPath)
 	if run.State == domain.StateAwaitingApproval {
-		fmt.Fprintln(c.stdout, "Next: loop-engine approve --project <path>")
+		fmt.Fprintln(c.stdout, "Next: rct approve --project <path>")
 	}
 	return 0
 }
@@ -236,7 +236,7 @@ func (c *CLI) runApprove(ctx context.Context, args []string) int {
 	fmt.Fprintf(c.stdout, "State: %s\n", run.State)
 	fmt.Fprintf(c.stdout, "Approved plan SHA-256: %s\n", run.Approval.SubjectSHA256)
 	fmt.Fprintf(c.stdout, "Approval record: %s\n", run.ApprovalPath)
-	fmt.Fprintln(c.stdout, "Next: loop-engine implement --project <path>")
+	fmt.Fprintln(c.stdout, "Next: rct implement --project <path>")
 	return 0
 }
 
@@ -467,6 +467,6 @@ func (c *CLI) writeJSON(value any) int {
 }
 
 func (c *CLI) printUsage() {
-	fmt.Fprintln(c.stderr, "Usage: loop-engine <command> [options]")
+	fmt.Fprintln(c.stderr, "Usage: rct <command> [options]")
 	fmt.Fprintln(c.stderr, "Commands: start, plan, approve, implement, doctor, status, version")
 }

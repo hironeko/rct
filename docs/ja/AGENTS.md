@@ -1,4 +1,4 @@
-# Loop Engine プロジェクト指示（日本語版）
+# rct プロジェクト指示（日本語版）
 
 この文書は、リポジトリ直下の英語版`AGENTS.md`に対応する日本語の参照文書である。
 Agentが実行時に従う正本はリポジトリ直下の`AGENTS.md`とする。
@@ -15,15 +15,15 @@ Agentが実行時に従う正本はリポジトリ直下の`AGENTS.md`とする�
 
 ## 2. プロダクトの役割
 
-Loop Engineの標準ロールは次のとおりとする。RoleとProviderは固定対応ではない。
+rctの標準ロールは次のとおりとする。RoleとProviderは固定対応ではない。
 
 - Designer: 要望整理、要件定義、設計、実装計画
 - Implementer: マイルストーン実装、検証、レビュー対応
 - Reviewer: 要件、設計、計画、コード、検証結果の独立レビュー
-- Loop Engine Core: 状態遷移、Job管理、成果物管理、停止条件、再開
+- rct Core: 状態遷移、Job管理、成果物管理、停止条件、再開
 - 利用者: 概略要望、Provider選択、必要な判断、承認、最終受け入れ
 
-CodexとClaudeを直接相互呼び出しさせない。すべての工程遷移はLoop Engine Coreが管理する。
+CodexとClaudeを直接相互呼び出しさせない。すべての工程遷移はrct Coreが管理する。
 
 要望を最初に受け取るDesigner Providerは利用者が選択できる。Designer、Implementer、Reviewerは必ず別Role ID・別Agent sessionとする。同一ProviderがDesignerとImplementerを担う場合もSessionや会話Contextを共有しない。Reviewer ProviderはDesignerおよびImplementer Providerと異ならなければならない。
 
@@ -86,7 +86,7 @@ Agent sessionは失われる可能性がある一時的な実行資源として�
 - 本番デプロイ
 - 秘密情報の変更または出力
 
-実装工程では、デフォルトでClean Worktreeを要求する。Dirty Worktree対応を実装する場合は、開始時の差分をBaselineとして保存し、既存変更をLoop Engineの成果として扱わない。
+実装工程では、デフォルトでClean Worktreeを要求する。Dirty Worktree対応を実装する場合は、開始時の差分をBaselineとして保存し、既存変更をrctの成果として扱わない。
 
 ## 7. Process実行
 
@@ -142,7 +142,7 @@ Adapterを変更する場合はContract Testを追加すること。通常のCI�
 gofmt -w cmd internal
 go test ./...
 go vet ./...
-go build ./cmd/loop-engine
+go build ./cmd/rct
 ```
 
 Sandbox環境で標準Go Cacheへ書き込めない場合は、書き込み可能な一時ディレクトリを`GOCACHE`に指定すること。

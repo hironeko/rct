@@ -9,15 +9,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hironeko/loop-engine/internal/domain"
-	loopruntime "github.com/hironeko/loop-engine/internal/runtime"
+	"github.com/hironeko/rct/internal/domain"
+	rctruntime "github.com/hironeko/rct/internal/runtime"
 )
 
 type CLIGateway struct {
-	runner loopruntime.ProcessRunner
+	runner rctruntime.ProcessRunner
 }
 
-func NewCLIGateway(runner loopruntime.ProcessRunner) *CLIGateway {
+func NewCLIGateway(runner rctruntime.ProcessRunner) *CLIGateway {
 	return &CLIGateway{runner: runner}
 }
 
@@ -46,7 +46,7 @@ func (g *CLIGateway) Execute(ctx context.Context, job Job) (Result, error) {
 	}
 
 	var (
-		result  loopruntime.ProcessResult
+		result  rctruntime.ProcessResult
 		output  []byte
 		execErr error
 	)
@@ -106,13 +106,13 @@ func (g *CLIGateway) executeCodex(
 	ctx context.Context,
 	job Job,
 	schemaPath string,
-) (loopruntime.ProcessResult, []byte, error) {
+) (rctruntime.ProcessResult, []byte, error) {
 	outputPath := filepath.Join(job.JobDir, "codex-final.json")
 	sandbox := "read-only"
 	if job.Access == AccessWorkspaceWrite {
 		sandbox = "workspace-write"
 	}
-	result, err := g.runner.Run(ctx, loopruntime.ProcessRequest{
+	result, err := g.runner.Run(ctx, rctruntime.ProcessRequest{
 		Executable: domain.ProviderCodex.Executable(),
 		Args: []string{
 			"exec",
@@ -142,14 +142,14 @@ func (g *CLIGateway) executeCodex(
 func (g *CLIGateway) executeClaude(
 	ctx context.Context,
 	job Job,
-) (loopruntime.ProcessResult, []byte, error) {
+) (rctruntime.ProcessResult, []byte, error) {
 	permissionMode := "dontAsk"
 	tools := "Read,Glob,Grep"
 	if job.Access == AccessWorkspaceWrite {
 		permissionMode = "acceptEdits"
 		tools = "Read,Glob,Grep,Edit,Write"
 	}
-	result, err := g.runner.Run(ctx, loopruntime.ProcessRequest{
+	result, err := g.runner.Run(ctx, rctruntime.ProcessRequest{
 		Executable: domain.ProviderClaude.Executable(),
 		Args: []string{
 			"--print",

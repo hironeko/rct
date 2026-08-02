@@ -1,10 +1,10 @@
 # Document Output / Local Preview 実装計画
 
-- 文書版: 0.1.0-draft
+- 文書版: 0.2.0-draft
 - 作成日: 2026-07-31
-- 入力要件: `docs/requirements.md` 0.4.1
-- 入力設計: `docs/design/document-output.md` 0.1.0-draft
-- 状態: Claude Plan Review待ち
+- 入力要件: `docs/requirements.md` 0.9.0-draft
+- 入力設計: `docs/design/document-output.md` 0.2.0-draft
+- 状態: 計画完了（実装未着手）
 
 ## 1. 実装方針
 
@@ -14,7 +14,7 @@
 - 高RiskなFile安全性を先に検証する
 - Review Subject移行をCompiler UIより先に完成させる
 - 各Milestoneを独立してRevert可能にする
-- Claude Code ReviewのRequired Changeを解消してから次へ進む
+- 独立Code ReviewのRequired Changeを解消してから次へ進む
 
 ## 2. 依存順
 
@@ -154,7 +154,7 @@ GOOS=linux GOARCH=amd64 go build ./...
 
 #### 完了定義
 
-Technical Spike結果を`docs/spikes/safe-publication-filesystem.md`へ記録し、Claudeが
+Technical Spike結果を`docs/spikes/safe-publication-filesystem.md`へ記録し、独立Reviewerが
 安全性をReviewできる。
 
 #### Rollback
@@ -319,7 +319,7 @@ MarkdownをNetwork不要の読みやすい静的HTML/CSSへ変換する。
 - Custom CSS Policy
 - Local Image Asset Copy
 - `preview-manifest.json`
-- `loop-engine render`
+- `rct render`
 - `--source` / `--destination` / `--json`
 
 #### Non-scope
@@ -337,7 +337,7 @@ internal/documents/url_policy.go
 internal/documents/css_policy.go
 internal/documents/assets/
 internal/cli/cli.go
-cmd/loop-engine/main.go
+cmd/rct/main.go
 ```
 
 #### 受け入れ条件
@@ -379,7 +379,7 @@ CompilerはWorkflowと独立Package/Commandのため、Document Artifact生成�
 
 #### Scope
 
-- `loop-engine preview`
+- `rct preview`
 - 初回Render
 - `127.0.0.1:0`
 - URL表示
@@ -405,7 +405,7 @@ CompilerはWorkflowと独立Package/Commandのため、Document Artifact生成�
 internal/preview/server.go
 internal/preview/policy.go
 internal/cli/cli.go
-cmd/loop-engine/main.go
+cmd/rct/main.go
 ```
 
 #### 受け入れ条件
@@ -464,7 +464,7 @@ Document Flow全体をmacOS/Linuxで再現し、公開可能な品質へ仕上�
 #### 受け入れ条件
 
 - AC-016〜028をTraceできる
-- `loop-engine start --help`が0で終了する
+- `rct start --help`が0で終了する
 - `render`/`preview` HelpにDefault PathとSecurity Boundaryが出る
 - 両Provider方向の実E2E記録がある
 - macOS arm64/Linux amd64 Binaryが生成できる
@@ -477,13 +477,13 @@ Document Flow全体をmacOS/Linuxで再現し、公開可能な品質へ仕上�
 go test ./...
 go test -race ./...
 go vet ./...
-GOOS=darwin GOARCH=arm64 go build ./cmd/loop-engine
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/loop-engine
+GOOS=darwin GOARCH=arm64 go build ./cmd/rct
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/rct
 ```
 
 #### 完了定義
 
-Release CandidateをClaudeがCode/Artifact Reviewし、Critical/Highがなく、全必須Gateが
+Release Candidateを独立ReviewerがCode/Artifact Reviewし、Critical/Highがなく、全必須Gateが
 成功している。
 
 #### Rollback
@@ -491,7 +491,7 @@ Release CandidateをClaudeがCode/Artifact Reviewし、Critical/Highがなく、
 Release Tagを作成するまでDistributionを更新しない。失敗時は最後に承認された
 Milestone Binaryへ戻す。
 
-## 4. MilestoneごとのClaude Review
+## 4. MilestoneごとのIndependent Review
 
 各Milestone完了時に次を渡す。
 

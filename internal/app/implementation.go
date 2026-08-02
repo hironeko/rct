@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	agentassets "github.com/hironeko/loop-engine/agent-assets"
-	"github.com/hironeko/loop-engine/internal/domain"
-	"github.com/hironeko/loop-engine/internal/providers"
-	loopruntime "github.com/hironeko/loop-engine/internal/runtime"
-	"github.com/hironeko/loop-engine/internal/store/filesystem"
-	"github.com/hironeko/loop-engine/schemas"
+	agentassets "github.com/hironeko/rct/agent-assets"
+	"github.com/hironeko/rct/internal/domain"
+	"github.com/hironeko/rct/internal/providers"
+	rctruntime "github.com/hironeko/rct/internal/runtime"
+	"github.com/hironeko/rct/internal/store/filesystem"
+	"github.com/hironeko/rct/schemas"
 )
 
 const maxUntrackedReviewBytes = 256 * 1024
@@ -740,7 +740,7 @@ func (s *Service) verifyMilestone(
 			return record, nil, err
 		}
 		commandContext, cancel := context.WithTimeout(ctx, s.jobTimeout)
-		result, runErr := s.runner.Run(commandContext, loopruntime.ProcessRequest{
+		result, runErr := s.runner.Run(commandContext, rctruntime.ProcessRequest{
 			Executable: command.Executable,
 			Args:       append([]string(nil), command.Args...),
 			Directory:  run.Project,
@@ -857,7 +857,7 @@ func filterInternalStatus(entries []gitStatusEntry) []gitStatusEntry {
 }
 
 func isInternalStatusPath(path string) bool {
-	return path == ".loop-engine" || strings.HasPrefix(path, ".loop-engine/")
+	return path == ".rct" || strings.HasPrefix(path, ".rct/")
 }
 
 func formatGitStatus(entries []gitStatusEntry) string {
@@ -903,7 +903,7 @@ func (s *Service) gitText(
 ) (string, error) {
 	commandContext, cancel := context.WithTimeout(ctx, s.jobTimeout)
 	defer cancel()
-	result, err := s.runner.Run(commandContext, loopruntime.ProcessRequest{
+	result, err := s.runner.Run(commandContext, rctruntime.ProcessRequest{
 		Executable: "git",
 		Args:       args,
 		Directory:  project,
@@ -942,7 +942,7 @@ func (s *Service) buildCodeReviewSubject(
 		"--binary",
 		"--",
 		".",
-		":(exclude).loop-engine",
+		":(exclude).rct",
 	)
 	if err != nil {
 		return nil, err

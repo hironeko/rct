@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hironeko/loop-engine/internal/domain"
-	"github.com/hironeko/loop-engine/internal/store/filesystem"
+	"github.com/hironeko/rct/internal/domain"
+	"github.com/hironeko/rct/internal/store/filesystem"
 )
 
 func TestExecutePlanningApprovesArchitectureAndPlan(t *testing.T) {
@@ -156,7 +156,7 @@ func testPlan(t *testing.T) []byte {
 
 func documentPath(runID, kind string, round int) string {
 	return filepath.ToSlash(filepath.Join(
-		".loop-engine", "runs", runID, "artifacts", kind,
+		".rct", "runs", runID, "artifacts", kind,
 		fmt.Sprintf("v%03d.json", round),
 	))
 }

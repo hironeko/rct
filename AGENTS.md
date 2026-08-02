@@ -1,4 +1,4 @@
-# Loop Engine project instructions
+# rct project instructions
 
 This file contains persistent shared instructions for Codex, Claude Code, and compatible agents working in this repository. The Japanese reference version is available at `docs/ja/AGENTS.md`.
 
@@ -14,15 +14,15 @@ If the design and code conflict, do not silently change the design based on an a
 
 ## 2. Product roles
 
-Loop Engine defines the following standard roles. Roles are not permanently bound to providers.
+rct defines the following standard roles. Roles are not permanently bound to providers.
 
 - Designer: request clarification, requirements, architecture, and implementation planning
 - Implementer: milestone implementation, verification, and review remediation
 - Reviewer: independent review of requirements, architecture, plans, code, and verification results
-- Loop Engine Core: state transitions, job coordination, artifact management, stopping conditions, and recovery
+- rct Core: state transitions, job coordination, artifact management, stopping conditions, and recovery
 - User: rough request, provider selection, required decisions, approvals, and final acceptance
 
-Do not make Codex and Claude call each other directly. Loop Engine Core must control every workflow transition.
+Do not make Codex and Claude call each other directly. rct Core must control every workflow transition.
 
 The user may choose the Designer provider that receives the initial request. Designer, Implementer, and Reviewer must always have different role IDs and agent sessions. Even when one provider performs both Designer and Implementer roles, those roles must not share sessions or conversation context. The Reviewer provider must differ from both the Designer and Implementer providers.
 
@@ -85,7 +85,7 @@ Preserve existing user changes. Do not perform the following without an explicit
 - production deployment
 - secret modification or disclosure
 
-Require a clean worktree by default before an implementation phase. If dirty-worktree support is introduced, capture the starting diff as a baseline and never treat pre-existing changes as Loop Engine output.
+Require a clean worktree by default before an implementation phase. If dirty-worktree support is introduced, capture the starting diff as a baseline and never treat pre-existing changes as rct output.
 
 ## 7. Process execution
 
@@ -141,7 +141,7 @@ Standard commands:
 gofmt -w cmd internal
 go test ./...
 go vet ./...
-go build ./cmd/loop-engine
+go build ./cmd/rct
 ```
 
 If a sandbox cannot write to the default Go cache, set `GOCACHE` to a writable temporary directory.

@@ -1,9 +1,9 @@
 # Local Browser Control Plane 実装計画
 
-- 文書版: 0.2.1-draft
+- 文書版: 0.3.0-draft
 - 作成日: 2026-08-02
-- 対応設計: `docs/design/local-control-plane.md` 0.2.1-draft
-- 状態: Claude Review approved、RC-031〜RC-035反映済み
+- 対応設計: `docs/design/local-control-plane.md` 0.3.0-draft
+- 状態: 計画完了（実装未着手）
 
 ## 1. 実装原則
 
@@ -194,7 +194,7 @@ State変更機能を接続する前に、Loopback、Session、CSRF、Origin、CS
 
 #### Scope
 
-- `loop-engine serve` command shell
+- `rct serve` command shell
 - loopback-only listener policy
 - generated session bootstrap
 - SameSite Strict Cookie
@@ -409,7 +409,7 @@ Run start endpointを無効化してもSave draftとCLI startを維持する。
 
 #### Acceptance
 
-- `loop-engine serve --help`がRoot/Bind/Security Defaultを説明する
+- `rct serve --help`がRoot/Bind/Security Defaultを説明する
 - Binary一つでUIとCoreが起動する
 - Node.js/npm/Pythonなしで利用できる
 - `/ui/*`の全主要Routeを直接再読込できる
@@ -427,8 +427,8 @@ git diff --exit-code -- web/dist
 gofmt -w cmd internal
 go test -race ./... -count=1
 go vet ./...
-CGO_ENABLED=0 go build ./cmd/loop-engine
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/loop-engine
+CGO_ENABLED=0 go build ./cmd/rct
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/rct
 ```
 
 #### Rollback boundary
@@ -438,7 +438,7 @@ CLI Binaryの既存機能をRelease可能に保つ。
 
 ## 4. Milestone Review contract
 
-各Milestone完了時にClaude Reviewerへ次を渡す。
+各Milestone完了時に独立Reviewerへ次を渡す。
 
 - 承認済みRequirements / Architecture / Plan Hash
 - 対象Milestone ID

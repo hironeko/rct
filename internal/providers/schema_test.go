@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hironeko/loop-engine/schemas"
+	"github.com/hironeko/rct/schemas"
 )
 
 func TestEmbeddedSchemasCompileAndRejectIncompleteOutput(t *testing.T) {

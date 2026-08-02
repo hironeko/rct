@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hironeko/loop-engine/internal/domain"
-	"github.com/hironeko/loop-engine/internal/providers"
+	"github.com/hironeko/rct/internal/domain"
+	"github.com/hironeko/rct/internal/providers"
 )
 
 type scriptedGateway struct {
@@ -52,7 +52,7 @@ func TestExecuteDesignRevisesThenApproves(t *testing.T) {
 		ProviderAuth: func(context.Context, domain.Provider) error { return nil },
 	})
 	run, err := service.Start(context.Background(), StartOptions{
-		Request:  "Build a loop engine",
+		Request:  "Build rct",
 		Project:  project,
 		Mode:     "design-only",
 		Backend:  "direct",
@@ -111,7 +111,7 @@ func TestExecuteDesignRevisesThenApproves(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(
 		project,
-		".loop-engine",
+		".rct",
 		"runs",
 		run.ID,
 		"artifacts",
@@ -310,7 +310,7 @@ func testReviewForType(
 
 func requirementsPath(runID string, round int) string {
 	return filepath.ToSlash(filepath.Join(
-		".loop-engine",
+		".rct",
 		"runs",
 		runID,
 		"artifacts",

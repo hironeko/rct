@@ -1,4 +1,4 @@
-module github.com/hironeko/loop-engine
+module github.com/hironeko/rct
 
 go 1.23.0
 

@@ -1,21 +1,21 @@
-# Loop Engine 要件定義書
+# rct 要件定義書
 
-- 文書版: 0.8.3-draft
-- ステータス: Draft（Core Loop Claude Review RC-036〜RC-038反映済み）
+- 文書版: 0.9.0-draft
+- ステータス: Draft（rct Core Loop実装済み、拡張機能は設計段階）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
 - 実装言語: Go
 
 ## 1. 概要
 
-Loop Engineは、利用者が入力した曖昧または概略的な要望を起点として、複数の生成AIエージェントを役割分担させながら、要件定義、設計、実装計画、実装、検証、レビュー、修正を段階的に進行させるローカル実行型のオーケストレーターである。
+rctは、利用者が入力した曖昧または概略的な要望を起点として、複数の生成AIエージェントを役割分担させながら、要件定義、設計、実装計画、実装、検証、レビュー、修正を段階的に進行させるローカル実行型のオーケストレーターである。
 
 標準ロールは次のとおりとする。ロールは固定の生成AIへ紐付けず、Provider（CodexまたはClaude Code）を設定により割り当てる。
 
 - Designer: PdM、要件定義者、設計者、実装計画者を担う
 - Implementer: マイルストーン実装者、Review対応者（Fixer）を担う
 - Reviewer: 要件、設計、計画、コードおよび検証結果を独立レビューする
-- Loop Engine: 状態管理、ジョブ管理、成果物管理、停止条件、権限境界、再開処理を担う制御者
+- rct: 状態管理、ジョブ管理、成果物管理、停止条件、権限境界、再開処理を担う制御者
 - 利用者: 最初の要望の提示、必要な判断、任意の承認、最終受け入れを行う、Designer/Implementer/ReviewerへのProvider割当を選択する
 
 DesignerとImplementerには同一Providerを割り当てても別Providerを割り当てても構わない。ただしReviewerには、同一RunのDesignerおよびImplementerと異なるProviderを割り当てなければならない（詳細は9.16）。デフォルト割当はDesigner=Codex、Implementer=Codex、Reviewer=Claude Codeとする。
@@ -35,7 +35,7 @@ Herdrは最優先のセッション表示・制御バックエンドとする。
 - セッション中断後に、何が承認済みか判断できなくなる
 - 画面上の発言と実際の成果物の状態が一致しない
 
-Loop Engineは、役割分離、構造化成果物、明示的なゲート、有限回の修正ループ、永続化された状態を用いてこれらを解決する。
+rctは、役割分離、構造化成果物、明示的なゲート、有限回の修正ループ、永続化された状態を用いてこれらを解決する。
 
 ## 3. プロダクトゴール
 
@@ -61,7 +61,7 @@ Node.js、Python、Go、Rust、Swiftなど特定の言語やフレームワー�
 
 ### G-006: 中断・再開可能にする
 
-Loop Engineや端末が終了しても、永続化された成果物と状態から安全に再開できること。
+rctや端末が終了しても、永続化された成果物と状態から安全に再開できること。
 
 ### G-007: 成果物を人間が読みやすい形で提供する
 
@@ -73,7 +73,7 @@ HTML/CSSを生成できること。
 
 利用者がローカルブラウザから既存プロジェクトへの新規要望または新規アプリケーション
 作成依頼を入力し、許可したWorkspace Root内へMarkdownとして保存したうえで、CLIと
-同一のLoop Engine CoreへRunを依頼できること。
+同一のrct CoreへRunを依頼できること。
 
 ## 4. 非ゴール
 
@@ -130,7 +130,7 @@ Gate Evaluatorを別の入力面から利用する。
 - macOSまたはLinuxで動作する
 - Codex CLIとClaude Codeがインストール済みである
 - Codex CLIとClaude Codeの認証は各CLI側で完了している
-- Loop EngineはAPIキーやログイン資格情報を保存しない
+- rctはAPIキーやログイン資格情報を保存しない
 - 実装工程を行うプロジェクトはGitリポジトリである
 - 要件定義・設計のみの実行ではGitを必須としない
 - Herdrとtmuxは任意依存である
@@ -142,7 +142,7 @@ Gate Evaluatorを別の入力面から利用する。
 
 ### UC-001: 新しい要望から要件と設計を作る
 
-1. 利用者がプロジェクトディレクトリでLoop Engineを起動する
+1. 利用者がプロジェクトディレクトリでrctを起動する
 2. 利用者が概略要望を入力する
 3. Codexがプロジェクトと要望を調査する
 4. Codexが要件・設計成果物を作成する
@@ -160,7 +160,7 @@ Gate Evaluatorを別の入力面から利用する。
 ### UC-003: マイルストーンを実装する
 
 1. Codexが対象マイルストーンだけを実装する
-2. Loop Engineが定義済み検証コマンドを実行する
+2. rctが定義済み検証コマンドを実行する
 3. Claude Codeが差分、要件適合性、検証結果をレビューする
 4. Codexが必須指摘へ対応する
 5. 再検証と再レビューを行う
@@ -169,7 +169,7 @@ Gate Evaluatorを別の入力面から利用する。
 ### UC-004: 中断した処理を再開する
 
 1. 利用者が `resume` を実行する
-2. Loop Engineが状態と成果物の整合性を検査する
+2. rctが状態と成果物の整合性を検査する
 3. 利用可能なら既存のエージェントセッションを再利用する
 4. 再利用できなければ新しいセッションを作成する
 5. 最後に確定したチェックポイントから処理を再開する
@@ -188,9 +188,9 @@ Gate Evaluatorを別の入力面から利用する。
 ### UC-006: 生成資料をローカルで視覚的に確認する
 
 1. 利用者がMarkdownの要望ファイルからRunを開始する
-2. Loop Engineが要件定義書、設計書、実装計画などをMarkdownとして出力する
+2. rctが要件定義書、設計書、実装計画などをMarkdownとして出力する
 3. 利用者が`render`または`preview`を実行する
-4. Loop EngineがMarkdownを静的HTML/CSSへ変換する
+4. rctがMarkdownを静的HTML/CSSへ変換する
 5. 利用者が見出しナビゲーション、表、コード、レビュー状態をブラウザで確認する
 6. HTMLを削除しても、Markdownから同じ内容を再生成できる
 
@@ -200,7 +200,7 @@ Gate Evaluatorを別の入力面から利用する。
 2. ブラウザで「New request」を選ぶ
 3. 許可されたRoot内から既存プロジェクトを選ぶ
 4. 要望、制約、Designer Provider、Modeを入力する
-5. Loop Engineが要望をMarkdownへ原子的に保存する
+5. rctが要望をMarkdownへ原子的に保存する
 6. 利用者が`Save and start`を選んだ場合、同じ入力から一つのRunを開始する
 7. 利用者がブラウザまたはCLIの`status`から同じRun IDと状態を確認する
 
@@ -209,7 +209,7 @@ Gate Evaluatorを別の入力面から利用する。
 1. 利用者がブラウザで「New application」を選ぶ
 2. 許可されたRoot内の親Directoryと新しいProject名を指定する
 3. 作成目的、対象利用者、主要機能、制約、希望する技術または未指定を入力する
-4. Loop Engineが新しいProject Directoryと`request.md`を作成する
+4. rctが新しいProject Directoryと`request.md`を作成する
 5. 既存Pathとの競合がなければ、保存したRequestを入力としてRunを開始できる
 6. DesignerとReviewerがCLI起動時と同じArtifact ProtocolでLoopを進める
 
@@ -247,22 +247,22 @@ Gate Evaluatorを別の入力面から利用する。
 
 #### FR-001
 
-Loop Engineは、コマンド引数、標準入力、またはファイルから概略要望を受け取れること。
+rctは、コマンド引数、標準入力、またはファイルから概略要望を受け取れること。
 
 #### FR-002
 
 次のコマンドを提供すること。
 
 ```text
-loop-engine start
-loop-engine status
-loop-engine resume
-loop-engine approve
-loop-engine reject
-loop-engine answer
-loop-engine stop
-loop-engine doctor
-loop-engine logs
+rct start
+rct status
+rct resume
+rct approve
+rct reject
+rct answer
+rct stop
+rct doctor
+rct logs
 ```
 
 #### FR-003
@@ -298,7 +298,7 @@ Provider割当は次の順序で導出する。
 
 #### FR-005
 
-`--execute` を指定した場合、Loop EngineはRun初期化後にWorkflowを開始すること。実装途中のBackendが選択された場合、対応済みBackendへ暗黙に変更せず、利用可能な起動方法を示して停止すること。
+`--execute` を指定した場合、rctはRun初期化後にWorkflowを開始すること。実装途中のBackendが選択された場合、対応済みBackendへ暗黙に変更せず、利用可能な起動方法を示して停止すること。
 
 `--max-review-rounds` は1以上とし、未指定時は3とする。上限到達時に自動承認してはならない。
 
@@ -308,7 +308,7 @@ Provider割当は次の順序で導出する。
 
 `doctor` は次を検査すること。
 
-- Loop Engineの設定ファイル
+- rctの設定ファイル
 - Codex CLIの存在
 - Claude Codeの存在
 - 各CLIの認証状態と基本的な起動可否
@@ -350,7 +350,7 @@ Herdrまたはtmuxが存在しなくても、Direct Backendで設計・レビュ
 
 #### FR-030
 
-Loop Engineは対象ディレクトリから次を調査し、Project Profileを生成すること。
+rctは対象ディレクトリから次を調査し、Project Profileを生成すること。
 
 - プロジェクト名
 - 使用言語
@@ -376,7 +376,7 @@ Loop Engineは対象ディレクトリから次を調査し、Project Profileを
 
 推定した任意コマンドを初回から無制限に実行しないこと。実行対象は設定、既知のマニフェスト、承認済みProject Profileのいずれかから得ること。
 
-MVPのImplementation Planに記録できるVerification ExecutableはLoop Engine組込みAllowlistに限定し、
+MVPのImplementation Planに記録できるVerification Executableはrct組込みAllowlistに限定し、
 `curl`、汎用Interpreter、Shell、Privilege Escalation ToolなどAllowlist外のExecutableはProcess生成前に
 拒否すること。子Processへ渡すEnvironmentは明示Allowlistから再構成し、親Processの環境変数全体を
 継承してはならない。組込みAllowlist外のCommand Profile拡張は、Project Profile由来の根拠と利用者の
@@ -422,7 +422,7 @@ Architecture Artifactは`review_type: architecture`として独立Reviewerの有
 
 #### FR-045
 
-`0.4.x`の実行可能な初期実装ではRequirements、Architecture、Implementation PlanをVersioned JSON
+`0.5.x`の実行可能な初期実装ではRequirements、Architecture、Implementation PlanをVersioned JSON
 Artifactとして保存し、各JSON Schemaへ適合させること。ADR-009のMarkdown Publication移行では、
 同じDomain情報をMarkdown正本へ移行し、旧Runを暗黙に読み替えないこと。
 
@@ -486,7 +486,7 @@ Reviewerの`verdict: approved`は、品質評価の結果として「現在のRe
 
 #### FR-057
 
-Reviewerの`approved`だけで次工程へ遷移してはならない。Loop EngineのGate Evaluatorは、
+Reviewerの`approved`だけで次工程へ遷移してはならない。rctのGate Evaluatorは、
 工程に応じて少なくとも次の決定的条件を追加確認すること。
 
 - ReviewのRun ID、Job ID、Review Typeが現在のJobと一致する
@@ -588,11 +588,11 @@ Codexは一度に一つのマイルストーンだけを実装すること。
 
 #### FR-083
 
-明示的にDirty Worktreeを許可する場合は、開始時の差分をベースラインとして保存し、既存変更をLoop Engineの変更として扱わないこと。
+明示的にDirty Worktreeを許可する場合は、開始時の差分をベースラインとして保存し、既存変更をrctの変更として扱わないこと。
 
 #### FR-084
 
-Loop Engineおよびエージェントは、明示承認なしに次を実行しないこと。
+rctおよびエージェントは、明示承認なしに次を実行しないこと。
 
 - 強制的なGit reset
 - 未追跡ファイルの一括削除
@@ -746,17 +746,17 @@ Agent sessionを復元できない場合でも、承認済み成果物から新�
 ユーザー設定の標準パスを次とすること。
 
 ```text
-$XDG_CONFIG_HOME/loop-engine/config.toml
+$XDG_CONFIG_HOME/rct/config.toml
 ```
 
-`XDG_CONFIG_HOME` が未設定の場合は `~/.config/loop-engine/config.toml` とする。
+`XDG_CONFIG_HOME` が未設定の場合は `~/.config/rct/config.toml` とする。
 
 #### FR-142
 
 プロジェクト設定の標準パスを次とすること。
 
 ```text
-<project>/.loop-engine.toml
+<project>/.rct.toml
 ```
 
 #### FR-143
@@ -785,7 +785,7 @@ $XDG_CONFIG_HOME/loop-engine/config.toml
 
 #### FR-151
 
-Loop Engineは、ReviewerへのProvider割当が、同一RunのDesignerまたはImplementerへの割当のいずれかと一致する場合、Runを開始せずエラーとすること。設定変更によって既存Runの割当が事後的に不整合となった場合も、当該Runの再開を拒否すること。
+rctは、ReviewerへのProvider割当が、同一RunのDesignerまたはImplementerへの割当のいずれかと一致する場合、Runを開始せずエラーとすること。設定変更によって既存Runの割当が事後的に不整合となった場合も、当該Runの再開を拒否すること。
 
 #### FR-152
 
@@ -793,17 +793,17 @@ Loop Engineは、ReviewerへのProvider割当が、同一RunのDesignerまたは
 
 #### FR-153
 
-Loop Engineは、Designer、Implementer、Reviewerへそれぞれ異なるRole IDとAgent sessionを割り当てること。同一ProviderがDesignerとImplementerを兼任する場合も、会話ContextおよびSessionを共有してはならない。
+rctは、Designer、Implementer、Reviewerへそれぞれ異なるRole IDとAgent sessionを割り当てること。同一ProviderがDesignerとImplementerを兼任する場合も、会話ContextおよびSessionを共有してはならない。
 
 #### FR-154
 
-利用可能なProviderがCodexとClaude Codeの二つだけで、ReviewerがFR-151を満たす必要がある場合、Loop EngineはDesignerとImplementerを同じProviderへ割り当てること。利用者がDesigner Providerを選択した場合、Reviewerのデフォルト値はもう一方のProviderとし、Implementerのデフォルト値はDesignerと同じProviderとする。
+利用可能なProviderがCodexとClaude Codeの二つだけで、ReviewerがFR-151を満たす必要がある場合、rctはDesignerとImplementerを同じProviderへ割り当てること。利用者がDesigner Providerを選択した場合、Reviewerのデフォルト値はもう一方のProviderとし、Implementerのデフォルト値はDesignerと同じProviderとする。
 
 ### 9.17 利用者向け資料とDocument Compiler
 
 #### FR-160
 
-Loop Engineは、少なくとも次の利用者向け資料をGitHub Flavored Markdownと互換性の
+rctは、少なくとも次の利用者向け資料をGitHub Flavored Markdownと互換性の
 あるMarkdownとして出力できること。
 
 - 要件定義書
@@ -838,7 +838,7 @@ Markdownを人間が閲覧、Git管理、レビューするための正式なDoc
 Workflow制御に必要なSchema version、Run ID、Job ID、入力参照、ハッシュ、状態などは
 JSONのArtifact MetadataまたはResult Envelopeとして保持する。
 
-Agentが構造化JSONを返す工程では、Loop EngineがSchema検証済みの論理内容から
+Agentが構造化JSONを返す工程では、rctがSchema検証済みの論理内容から
 Markdownを生成すること。Reviewerの承認対象ハッシュは、利用者が実際に読む確定前の
 Markdown bytesに対して計算すること。
 
@@ -865,7 +865,7 @@ Versionとして記録し、必要な再レビューを行うこと。
 
 #### FR-163
 
-Loop Engineは、Markdownを入力として静的HTMLとCSSを生成するDocument Compilerを
+rctは、Markdownを入力として静的HTMLとCSSを生成するDocument Compilerを
 提供すること。変換時に生成AIを呼び出したり、Markdownに存在しない要件、結論、
 レビュー判断を追加したりしてはならない。
 
@@ -888,12 +888,12 @@ Loop Engineは、Markdownを入力として静的HTMLとCSSを生成するDocume
 Document Compilerは、次のコマンドを提供すること。
 
 ```text
-loop-engine render --source <markdown-or-directory> [--destination <path>]
-loop-engine preview --source <markdown-or-directory> [--destination <path>]
+rct render --source <markdown-or-directory> [--destination <path>]
+rct preview --source <markdown-or-directory> [--destination <path>]
 ```
 
 `render`はHTML/CSSを生成して終了すること。`preview`は初回Render後、ローカル
-Previewを起動すること。単一Markdownと、Loop Engineが生成した複数文書のDirectory
+Previewを起動すること。単一Markdownと、rctが生成した複数文書のDirectory
 の両方を入力にできること。`--destination`未指定時は、単一Markdownではその親
 Directoryの`preview/`、Directory入力ではそのDirectory配下の`preview/`を使用する
 こと。`start --output-dir`とCompilerの`--destination`を同じ意味のOptionとして
@@ -910,7 +910,7 @@ Preview Originとの完全一致を要求すること。Preview Serverは状態�
 
 #### FR-167
 
-CSSはHTML本文から分離した静的Assetとして出力し、Loop Engineに組み込まれたDefault
+CSSはHTML本文から分離した静的Assetとして出力し、rctに組み込まれたDefault
 Themeだけで閲覧できること。Font、CSS、JavaScript、画像をCDNから自動取得しては
 ならない。Custom CSSは利用者が明示指定したローカルファイルだけを使用できること。
 
@@ -960,7 +960,7 @@ Output Rootが未指定でRequest FileがMarkdownの場合、利用者向けSour
 存在しない工程の文書やDirectoryを空で作成する必要はない。
 
 各Review Roundで生成したMarkdownは、まず内部Artifact Storeの版管理Path
-（例: `.loop-engine/runs/<run-id>/artifacts/requirements/v002.md`）へ不変Snapshot
+（例: `.rct/runs/<run-id>/artifacts/requirements/v002.md`）へ不変Snapshot
 として確定すること。Output Rootの`requirements.md`などは、その時点のCandidate
 またはApproved Snapshotと同一bytesを持つ、GitHub向けのManaged Publication Copy
 とする。Artifact ManifestはPublication Path、参照するVersioned Artifact、
@@ -969,7 +969,7 @@ Output Rootが未指定でRequest FileがMarkdownの場合、利用者向けSour
 #### FR-171
 
 `--output-dir`にはProject Root外を含む任意の書込可能Directoryを指定できること。
-Loop EngineはOutput Root内の相対パスを正規化し、`..`、Symbolic Link、または
+rctはOutput Root内の相対パスを正規化し、`..`、Symbolic Link、または
 不正なArtifact名によってOutput Root外へ書き出さないこと。
 
 Output Root自体が利用者に明示指定されたSymbolic Linkである場合は、Run開始時に
@@ -980,7 +980,7 @@ Output Root自体が利用者に明示指定されたSymbolic Linkである場�
 
 #### FR-172
 
-Loop Engineは、Output Rootに存在するファイルを暗黙に上書きしないこと。別Runまたは
+rctは、Output Rootに存在するファイルを暗黙に上書きしないこと。別Runまたは
 利用者が作成した同名ファイルに加え、同じRunが所有するPublication Copyも書込前に
 現在のSHA-256とArtifact Manifestの`last_published_sha256`を比較すること。
 
@@ -1034,7 +1034,7 @@ Document Compilerは、Raw HTMLと実行可能Scriptをデフォルトで無効�
 
 #### FR-179
 
-`.loop-engine/`配下のState、Job Prompt、生のstdout/stderr、Lock、Cacheは内部運用
+`.rct/`配下のState、Job Prompt、生のstdout/stderr、Lock、Cacheは内部運用
 データとし、利用者向け資料のOutput Root指定とは分離すること。ただし、レビュー要約、
 検証要約、最終報告書など利用者が読む資料はOutput Rootへ出力すること。
 
@@ -1048,7 +1048,7 @@ Human ApprovalはReviewer Approvalと区別し、Supervisedモードにおいて
 
 #### FR-181
 
-`loop-engine approve`は、現在のRunが明示的なHuman Approval待ち状態にあり、Reviewer
+`rct approve`は、現在のRunが明示的なHuman Approval待ち状態にあり、Reviewer
 Approvalと決定的Gateがすでに通過している場合だけ受理すること。`changes_requested`、
 `blocked`、検証失敗、Schema不正、Hash不一致、Review上限到達を上書きしてはならない。
 
@@ -1075,10 +1075,10 @@ MVPではOverrideを提供しないこと。
 
 #### FR-190
 
-Loop Engineは次の形式でLocal Browser Control Planeを起動できること。
+rctは次の形式でLocal Browser Control Planeを起動できること。
 
 ```text
-loop-engine serve [--workspace-root <absolute-path>]... [--listen 127.0.0.1:0]
+rct serve [--workspace-root <absolute-path>]... [--listen 127.0.0.1:0]
 ```
 
 `--workspace-root`を省略した場合は起動時のCurrent Working Directoryだけを許可Rootと
@@ -1146,7 +1146,7 @@ Titleと本文を必須とし、入力サイズ、文字Encoding、Project slug�
 Request MarkdownとIntake Metadataは一時Fileへの書込、Flush、Atomic renameにより保存する
 こと。Intake ID、作成時刻、Request kind、Workspace Root ID、相対Path、Request SHA-256、
 Idempotency Key、State Revision、選択したRun Optionを
-`.loop-engine/intakes/<intake-id>/intake.json`へ保存すること。
+`.rct/intakes/<intake-id>/intake.json`へ保存すること。
 
 #### FR-198
 
@@ -1268,7 +1268,7 @@ Frontend DependencyはLockfileで固定し、CIとRelease BuildでType Check、U
 
 - macOS arm64 / amd64をサポートする
 - Linux arm64 / amd64をサポートする
-- Loop Engine自身のためにGo、Node.js、Python、jqの追加導入を要求しない
+- rct自身のためにGo、Node.js、Python、jqの追加導入を要求しない
 - Codex CLI、Claude Code、選択した任意Backend以外の外部依存を必須にしない
 - Markdown変換のためにNode.js、Python、Ruby、Pandoc、Browser拡張を要求しない
 
@@ -1312,7 +1312,7 @@ Frontend DependencyはLockfileで固定し、CIとRelease BuildでType Check、U
 
 ### NFR-007: 性能
 
-- Loop Engine自身の待機時CPU使用率を無視できる水準に保つ
+- rct自身の待機時CPU使用率を無視できる水準に保つ
 - ポーリングよりイベントまたはプロセス待機を優先する
 - 大きなログはメモリへ全件保持せず、ストリームとして保存する
 
@@ -1336,7 +1336,7 @@ FR-170に従いRequest Fileと同じDirectory階層へ保存する。任意のOu
 内部運用Artifactの標準ディレクトリを次とする。
 
 ```text
-.loop-engine/
+.rct/
 ├── current-run
 ├── runs/
 │   └── <run-id>/
@@ -1464,13 +1464,13 @@ CANCELLED
 - 既存の無関係なtmux Sessionを変更しない
 - `capture-pane` の文字列だけで承認や完了を判定しない
 - detach後も処理を継続できる
-- 停止時にLoop Engineが作成したSessionだけを対象にする
+- 停止時にrctが作成したSessionだけを対象にする
 
 ### 14.3 Direct Backend
 
 - 非対話または制御可能なCLI実行を使用する
 - 標準出力、標準エラー、終了コードをJob単位で取得する
-- Loop Engineの終了時に子プロセスを適切に停止する
+- rctの終了時に子プロセスを適切に停止する
 - Pane表示がなくても他Backendと同一の成果物契約を使用する
 
 ## 15. 受け入れ条件
@@ -1501,7 +1501,7 @@ Herdrとtmuxが存在しない環境で、Direct Backendにより同一の成果
 
 ### AC-007
 
-Loop Engineを要件レビュー中に強制終了しても、再起動後に確定済み成果物を失わず再開できる。
+rctを要件レビュー中に強制終了しても、再起動後に確定済み成果物を失わず再開できる。
 
 ### AC-008
 
@@ -1517,7 +1517,7 @@ Reviewerに割り当てたProviderが利用不能な場合、エラー理由を�
 
 ### AC-011
 
-既存のAgent CLIが満たすべき依存を除き、Loop EngineのためにGo、Node.js、Python、jqを追加インストールせず、配布バイナリを起動できる。
+既存のAgent CLIが満たすべき依存を除き、rctのためにGo、Node.js、Python、jqを追加インストールせず、配布バイナリを起動できる。
 
 ### AC-012
 
@@ -1635,12 +1635,12 @@ Human Approval後に対象PlanのHashが変わった場合、以前のApproval�
 ### AC-033
 
 `WAITING_FOR_HUMAN`の理由がReview上限、`blocked`、検証失敗、またはHash不一致である場合、
-通常の`loop-engine approve`では状態を進められず、理由に応じた修正、回答、再検証、
+通常の`rct approve`では状態を進められず、理由に応じた修正、回答、再検証、
 再レビューのいずれかを要求する。
 
 ### AC-034
 
-`loop-engine serve --workspace-root /work`を起動すると`127.0.0.1`の空きPortだけで待受け、
+`rct serve --workspace-root /work`を起動すると`127.0.0.1`の空きPortだけで待受け、
 許可Root外のPath、`..` traversal、Symbolic Link経由のDirectory一覧またはFile作成を拒否する。
 
 ### AC-035
@@ -1651,7 +1651,7 @@ Human Approval後に対象PlanのHashが変わった場合、以前のApproval�
 ### AC-036
 
 同じFormで`Save and start`を選ぶと一つのIntakeと一つのRunだけが作成され、Browserと
-`loop-engine status`が同じRun ID、State、Artifact Pathを表示する。
+`rct status`が同じRun ID、State、Artifact Pathを表示する。
 
 ### AC-037
 
@@ -1724,7 +1724,7 @@ ArchitectureまたはPlanのReview上限、`blocked`、Stale Hashでは次工程
 ### AC-050
 
 Supervised Runの承認済みPlan Hashに対してHuman approvalを記録した後、Clean Git Worktreeで
-`loop-engine implement`を実行すると、Plan順に一つのMilestoneだけをImplementerが変更し、承認済み
+`rct implement`を実行すると、Plan順に一つのMilestoneだけをImplementerが変更し、承認済み
 引数配列のVerificationがすべて成功した場合だけ独立Code Reviewへ進む。
 
 ### AC-051
@@ -1755,7 +1755,7 @@ New requestまたはNew applicationを作成しない。
 ### AC-055
 
 Implementation Planが`curl`またはAllowlist外ExecutableをVerification Commandへ指定した場合、
-Loop EngineはProcessを一度も生成せずPlanまたはVerificationを拒否する。許可Commandの子Processには
+rctはProcessを一度も生成せずPlanまたはVerificationを拒否する。許可Commandの子Processには
 `PATH`など明示許可されたEnvironmentだけが渡され、親ProcessのCredential環境変数を継承しない。
 
 ### AC-056
@@ -1799,8 +1799,8 @@ Revision CASに成功した一件だけが`IMPLEMENTATION_READY`へ遷移し、�
 4. tmux BackendにおけるAgentプロセス終了と再開の正確な制御方法
 5. Reviewerの読取専用権限をCLIレベルでどこまで強制できるか
 6. Project Profileの自動推定結果に対する初回承認を必須にするか
-7. `.loop-engine/` を標準でGit管理対象にするか、`.gitignore` 対象にするか
-8. SkillsをLoop Engineリポジトリから各Agentのグローバル領域へコピーするか、シンボリックリンクするか
+7. `.rct/` を標準でGit管理対象にするか、`.gitignore` 対象にするか
+8. Skillsをrctリポジトリから各Agentのグローバル領域へコピーするか、シンボリックリンクするか
 9. MVPのDefault ThemeでMermaidなどJavaScriptを必要とするDiagramを扱うか、静的画像
    へ限定するか
 10. 複数Runの資料を同じOutput Rootへ集約するためのRun Subdirectory Layoutを

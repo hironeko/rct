@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	agentassets "github.com/hironeko/loop-engine/agent-assets"
-	"github.com/hironeko/loop-engine/internal/domain"
-	"github.com/hironeko/loop-engine/internal/providers"
-	"github.com/hironeko/loop-engine/internal/store/filesystem"
-	"github.com/hironeko/loop-engine/schemas"
+	agentassets "github.com/hironeko/rct/agent-assets"
+	"github.com/hironeko/rct/internal/domain"
+	"github.com/hironeko/rct/internal/providers"
+	"github.com/hironeko/rct/internal/store/filesystem"
+	"github.com/hironeko/rct/schemas"
 )
 
 func (s *Service) ExecuteDesign(

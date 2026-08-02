@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hironeko/loop-engine/internal/domain"
+	"github.com/hironeko/rct/internal/domain"
 )
 
 func TestStartDesignerClaudeDerivesIndependentRoles(t *testing.T) {
@@ -33,7 +33,7 @@ func TestStartDesignerClaudeDerivesIndependentRoles(t *testing.T) {
 	})
 
 	run, err := service.Start(context.Background(), StartOptions{
-		Request:  "Build the loop engine",
+		Request:  "Build rct",
 		Project:  project,
 		Mode:     "supervised",
 		Backend:  "auto",
@@ -66,7 +66,7 @@ func TestStartDesignerClaudeDerivesIndependentRoles(t *testing.T) {
 		sessionIDs[sessionID] = true
 	}
 
-	statePath := filepath.Join(project, ".loop-engine", "runs", run.ID, "state.json")
+	statePath := filepath.Join(project, ".rct", "runs", run.ID, "state.json")
 	if _, err := os.Stat(statePath); err != nil {
 		t.Fatalf("state file was not created: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestStartRejectsSelfReview(t *testing.T) {
 	})
 
 	_, err := service.Start(context.Background(), StartOptions{
-		Request:  "Build the loop engine",
+		Request:  "Build rct",
 		Project:  t.TempDir(),
 		Mode:     "supervised",
 		Backend:  "direct",

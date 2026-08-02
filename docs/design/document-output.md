@@ -1,14 +1,14 @@
 # Document Artifact / Local Preview 詳細設計
 
-- 文書版: 0.1.0-draft
+- 文書版: 0.2.0-draft
 - 作成日: 2026-07-31
-- 対応要件: `docs/requirements.md` 0.4.1 FR-160〜FR-179
+- 対応要件: `docs/requirements.md` 0.9.0-draft FR-160〜FR-179
 - 関連ADR: `docs/architecture.md` ADR-009
 - 実装状態: 未実装
 
 ## 1. 目的
 
-Loop Engineが生成する要件定義書、設計書、実装計画などを、開発者とGitHubが読む
+rctが生成する要件定義書、設計書、実装計画などを、開発者とGitHubが読む
 Markdownとして安全に公開する。ローカルでは同じMarkdownから、読みやすい静的
 HTML/CSSを生成する。
 
@@ -129,7 +129,7 @@ Materializerは生成AIを呼ばず、入力にない結論を追加しない。
 初期Requirements Layout:
 
 ```text
-.loop-engine/runs/<run-id>/
+.rct/runs/<run-id>/
 ├── artifacts/
 │   └── requirements/
 │       ├── v001.json
@@ -276,7 +276,7 @@ Review SchemaのSubjectを次へ更新する。
 
 ```json
 {
-  "path": ".loop-engine/runs/<run-id>/artifacts/requirements/v002.md",
+  "path": ".rct/runs/<run-id>/artifacts/requirements/v002.md",
   "sha256": "<markdown-sha256>",
   "media_type": "text/markdown"
 }
@@ -384,7 +384,7 @@ Platform APIが要件を満たせない場合、機能を弱めて続行せず�
 Directory入力:
 
 - `*.md`と既知SubdirectoryのMarkdownを対象にする
-- `preview/`、`.loop-engine/`、Hidden Directory、Symlinkを除外する
+- `preview/`、`.rct/`、Hidden Directory、Symlinkを除外する
 - Lexical Path順で決定的に並べる
 - Default Destinationは`<source>/preview/`
 
@@ -451,7 +451,7 @@ Custom CSSは明示Fileだけをcopyする。`@import`、Remote URL、絶対File
 ### 9.1 start
 
 ```text
-loop-engine start --request-file request.md --output-dir ./docs/generated
+rct start --request-file request.md --output-dir ./docs/generated
 ```
 
 表示項目へOutput RootとArtifact Protocol Versionを追加する。
@@ -469,7 +469,7 @@ loop-engine start --request-file request.md --output-dir ./docs/generated
 ### 9.3 render
 
 ```text
-loop-engine render --source ./docs --destination ./docs/preview
+rct render --source ./docs --destination ./docs/preview
 ```
 
 Defaultは人間向けSummary、`--json`でManifestとWarningを出力する。
@@ -477,7 +477,7 @@ Defaultは人間向けSummary、`--json`でManifestとWarningを出力する。
 ### 9.4 preview
 
 ```text
-loop-engine preview --source ./docs
+rct preview --source ./docs
 ```
 
 初回Render後にURLを表示し、SIGINT/SIGTERMでGraceful Shutdownする。
@@ -608,8 +608,8 @@ Node.js、Python、Pandoc、Browser Extensionは導入しない。
 
 ## 16. 実装開始条件
 
-- 本詳細設計がClaudeのArchitecture Reviewで承認されている
-- Implementation MilestoneがClaudeのPlan Reviewで承認されている
+- 本詳細設計が独立Architecture Reviewで承認されている
+- Implementation Milestoneが独立Plan Reviewで承認されている
 - Publicationのno-follow実装方式がmacOS/LinuxでTechnical Spike済み
 - Go ToolchainがRace TestとCross Buildを実行できる状態である
 - Claude/Codex E2Eに必要な両CLI認証が利用可能である

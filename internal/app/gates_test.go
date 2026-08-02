@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hironeko/loop-engine/internal/domain"
+	"github.com/hironeko/rct/internal/domain"
 )
 
 func TestEvaluateReviewGateRequiresExactReviewIdentity(t *testing.T) {

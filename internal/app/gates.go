@@ -3,7 +3,7 @@ package app
 import (
 	"fmt"
 
-	"github.com/hironeko/loop-engine/internal/domain"
+	"github.com/hironeko/rct/internal/domain"
 )
 
 // reviewGateExpectation identifies the exact immutable artifact review that is

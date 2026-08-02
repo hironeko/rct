@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hironeko/loop-engine/internal/domain"
-	"github.com/hironeko/loop-engine/internal/store/filesystem"
+	"github.com/hironeko/rct/internal/domain"
+	"github.com/hironeko/rct/internal/store/filesystem"
 )
 
 type ApproveOptions struct {
@@ -107,7 +107,7 @@ func (s *Service) Approve(
 	candidate := run
 	candidate.Approval = &record
 	candidate.ApprovalPath = filepath.ToSlash(filepath.Join(
-		".loop-engine",
+		".rct",
 		"runs",
 		run.ID,
 		approvalRelativePath,
