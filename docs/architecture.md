@@ -1,8 +1,8 @@
 # Loop Engine アーキテクチャ設計書
 
-- 文書版: 0.5.0-draft
+- 文書版: 0.5.1-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.6.0-draft
+- 対応要件: `requirements.md` 0.6.1-draft
 - Draft拡張注記: Document Artifact移行方針とApproval Gate責務分離を含む。
   独立Review承認後にDraft表記を更新する
 - 実装言語: Go
@@ -1258,6 +1258,13 @@ loop-engine/
 ├── prompts/
 ├── agent-assets/
 ├── herdr-plugin/
+├── web/
+│   ├── embed.go
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── vite.config.ts
+│   ├── src/
+│   └── dist/
 ├── fixtures/
 ├── docs/
 ├── scripts/
@@ -1311,6 +1318,7 @@ dotfilesはLoop Engineの内部ファイルを直接複製しない。
 8. macOS/Linuxでのファイルロック
 9. 大きなGit diffをReviewerへ渡す方式
 10. Skills配置先と更新方法
+11. React/TypeScript Production Assetの再現BuildとGo `embed.FS`統合
 
 Spike結果によりProvider AdapterとRuntime Backendの詳細だけを調整し、DomainとArtifact Protocolは維持する。
 
@@ -1394,7 +1402,9 @@ Spike結果によりProvider AdapterとRuntime Backendの詳細だけを調整�
 - Security: Default Bindを`127.0.0.1:0`とし、Session Token、Origin、Host、CSRF、CSP、
   Body Limit、Idempotency Keyを必須とする。CORSと外部Resource読込を許可しない
 - 配布: HTML/CSS/JavaScriptはGo Binaryへ埋め込み、Node.jsや外部Web ServerをRuntime依存に
-  しない
+  しない。Frontend SourceはTypeScript Strict + React、RoutingはReact Router Data Mode、
+  Asset生成はViteに限定する。React Router Framework Mode、SSR、Full-stack Web Frameworkは
+  採用しない。Generated Assetは`go install`互換性のためRepositoryへ含め、CIで再現Buildを検査する
 - 理由: CLIの安全境界とArtifact Protocolを維持したまま、非CLI利用者が要望投入とRun確認を
   行える操作面を追加するため
 - 影響: HTTP Adapter、Workspace Browser、Intake Store、Run Manager、Security Policyの

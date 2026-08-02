@@ -1,7 +1,7 @@
 # Loop Engine 要件定義書
 
-- 文書版: 0.6.0-draft
-- ステータス: Draft（Local Browser Control Plane追加、独立レビュー待ち）
+- 文書版: 0.6.1-draft
+- ステータス: Draft（React/TypeScript UI方針追加、独立レビュー待ち）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
 - 実装言語: Go
@@ -83,6 +83,8 @@ MVPでは次を対象外とする。
 - 複数人による同時操作
 - Remote公開、複数利用者、認証基盤を伴うHosted Web UI。単一利用者向けのLoopback
   Local Browser Control Planeはv1拡張として対象に含める
+- Next.js、Remix、React Router Framework Modeなど、FrontendとServer Runtimeを一体化する
+  Full-stack Web Framework、SSR、React Server Components
 - Kubernetesやコンテナオーケストレーターとの統合
 - 生成AIサービスのAPIキー管理
 - 独自LLM推論基盤の提供
@@ -1184,6 +1186,52 @@ Control PlaneはCLIの代替ではなく追加Adapterとすること。Headless�
 CIでは引き続きCLIから同じApplication Serviceを利用でき、Browserを起動しなくても全Workflowを
 実行できること。
 
+#### FR-209
+
+Control PlaneのFrontend SourceはTypeScriptのStrict Modeで記述し、UI LibraryとしてReactと
+React DOM、Routing LibraryとしてReact Router Data Modeを使用すること。Routeは
+`createBrowserRouter`相当のData Router APIで明示的に定義すること。
+
+React Router Framework Mode、`@react-router/dev`によるFramework Convention、Next.js、Remix、
+その他のFull-stack Web Frameworkは使用しないこと。
+
+#### FR-210
+
+Frontendの開発ServerとProduction Asset生成にはViteをBuild Toolとして使用してよい。ただし
+Vite、Node.js、npmは開発・Build時だけの依存とし、配布Binaryの実行時依存にしてはならない。
+Production AssetはGoの`embed.FS`へ含め、利用者はGo BinaryだけでControl Planeを起動できること。
+
+#### FR-211
+
+Browser Routeは少なくとも次を提供すること。
+
+- `/ui/`: Home
+- `/ui/requests/new`: New request
+- `/ui/applications/new`: New application
+- `/ui/intakes/:intakeId`: Intake confirmation
+- `/ui/runs/:runId`: Run detail
+
+Go HTTP Adapterは`/ui/*`の直接Accessと再読込に同じFrontend Entryを返し、`/api/v1/*`および
+Static Asset RouteをSPA Fallbackへ誤転送してはならない。
+
+#### FR-212
+
+FrontendのRuntime DependencyはReact、React DOM、React Routerを基本上限とする。State管理Library、
+Component Framework、CSS-in-JS Runtime、外部Icon/Font Packageは、具体的必要性とSecurity/Bundle影響を
+独立Reviewで承認するまで追加しないこと。Styleは通常のCSSとDesign Token Custom Propertiesで実装すること。
+
+#### FR-213
+
+Frontendは`/api/v1`のRequest/Response DTOをTypeScript Typeとして一箇所に定義し、API Clientを
+経由して使用すること。Client側Validationは操作支援であり、Path、権限、入力、State Revision、
+Idempotencyの正式Validationは必ずGo Server側で再実行すること。
+
+#### FR-214
+
+Frontend DependencyはLockfileで固定し、CIとRelease BuildでType Check、Unit Test、Production Build、
+外部URL検査を実行すること。埋込済みProduction AssetとFrontend Sourceの対応をBuild Manifestまたは
+同等のMachine-readable Metadataで検査できること。
+
 ## 10. 非機能要件
 
 ### NFR-001: ポータビリティ
@@ -1610,6 +1658,33 @@ Herdr、tmuxを起動せずNew request/New application/Run開始/Error処理を�
 配布Binaryから`serve`を起動でき、利用環境へNode.js、npm、Python、Browser Extension、外部Web
 Serverを追加Installする必要がない。
 
+### AC-044
+
+Frontend SourceがTypeScript Strict ModeでErrorなくType Checkされ、`.tsx`内で`any`によるAPI
+Envelopeの無条件な型回避を行っていない。
+
+### AC-045
+
+`/ui/requests/new`、`/ui/applications/new`、`/ui/intakes/<id>`、`/ui/runs/<id>`をBrowserへ直接入力して
+再読込しても該当画面またはMachine-readableなNot Foundを表示し、`/api/v1` ResponseをFrontend
+Entryへ置換しない。
+
+### AC-046
+
+CleanなRelease BuildでFrontend Production Assetを生成してGo Binaryへ埋め込める。完成Binaryを
+Node.js、npm、Vite、外部CDNがない環境で起動して、全主要RouteとCSS/JavaScriptを読込できる。
+
+### AC-047
+
+Frontend Production DependencyにReact、React DOM、React Router以外が追加された場合はDependency
+Policy Gateが失敗するか、承認済み例外記録を要求する。React Router Framework Mode、Next.js、Remix、
+SSR用Server Runtimeを含む場合はBuildを失敗させる。
+
+### AC-048
+
+New request/New applicationのForm送信、Intake確認、Run表示のFrontend TestがFake APIで成功し、
+同じ操作のHTTP Contract TestがGo Application Serviceへの入力とCSRF/Idempotency Headerを検証する。
+
 ## 16. 初期リスク
 
 | リスク | 影響 | 対応 |
@@ -1627,6 +1702,8 @@ Serverを追加Installする必要がない。
 | Browser UIから任意Pathへ書き込まれる | 利用者Fileの破損 | 明示Workspace Root、相対Path、no-follow、Atomic write |
 | 悪意あるLocal Web PageがControl Planeを操作する | 意図しないRun開始 | Session Token、Origin/Host/CSRF検証、CORS無効 |
 | 二重送信で複数Runが作成される | 重複費用と競合 | Idempotency Key、Intake State Revision、Run一意制約 |
+| Frontend FrameworkがGo CoreとWorkflowを重複実装する | 状態不整合と保守コスト増大 | React Router Data Modeに限定し、Go APIを唯一の正式状態変更境界とする |
+| Frontend Build AssetとSourceが乖離する | 古いUIまたは脆弱な依存を配布する | Lockfile、Build Manifest、再現Build、Source/Asset対応Gate |
 
 ## 17. 未決事項
 
@@ -1654,3 +1731,6 @@ Serverを追加Installする必要がない。
 - Codex customization: https://learn.chatgpt.com/docs/customization/overview
 - Claude Code skills: https://code.claude.com/docs/en/skills
 - Claude Code subagents: https://code.claude.com/docs/en/sub-agents
+- React TypeScript: https://react.dev/learn/typescript
+- React Router modes: https://reactrouter.com/start/modes
+- Vite backend integration: https://vite.dev/guide/backend-integration.html

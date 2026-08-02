@@ -1,8 +1,8 @@
 # Local Browser Control Plane 実装計画
 
-- 文書版: 0.1.0-draft
+- 文書版: 0.2.0-draft
 - 作成日: 2026-08-02
-- 対応設計: `docs/design/local-control-plane.md` 0.1.0-draft
+- 対応設計: `docs/design/local-control-plane.md` 0.2.0-draft
 - 状態: Claude Plan Review待ち
 
 ## 1. 実装原則
@@ -12,6 +12,8 @@
 - BrowserとCLIでWorkflowを複製しない
 - 実Providerを使わずFakeで通常Testを完結させる
 - Node.js、npm、外部CDNをRuntime依存にしない
+- FrontendはTypeScript Strict + React + React Router Data Modeで実装し、Full-stack Frameworkを使わない
+- Frontend生成物はManifestと再現BuildでSourceとの一致を検査する
 - Critical/HighのRequired Changeを解消するまで次Milestoneへ進まない
 
 ## 2. Milestone一覧
@@ -197,7 +199,7 @@ State変更機能を接続する前に、Loopback、Session、CSRF、Origin、CS
 - GET/HEAD/POST method policy
 - JSON envelope and public errors
 - CSP/security headers
-- embedded placeholder UI assets
+- embedded minimal diagnostic asset（React UI接続前のSecurity Test用）
 - graceful server shutdown
 
 #### Non-scope
@@ -245,6 +247,10 @@ go test -race ./internal/controlplane/http ./internal/cli -count=1
 
 #### Scope
 
+- TypeScript Strict + TSX project
+- React + React DOM
+- React Router Data Mode and `/ui` route tree
+- Vite production build and manifest
 - Home with two primary actions
 - Workspace/Directory browser API
 - New request form
@@ -254,7 +260,9 @@ go test -race ./internal/controlplane/http ./internal/cli -count=1
 - Save draft
 - Form validation/error summary
 - Keyboard/focus/responsive behavior
-- embedded HTML/CSS/vanilla JS
+- typed API client and DTOs
+- plain CSS and design tokens
+- committed, reproducible embedded production assets
 
 #### Non-scope
 
@@ -262,15 +270,27 @@ go test -race ./internal/controlplane/http ./internal/cli -count=1
 - Arbitrary file upload
 - File content browser
 - Rich text editor
+- React Router Framework Mode、Next.js、Remix、SSR
+- State management library、UI component framework、CSS-in-JS runtime
 
 #### 変更候補
 
 ```text
 internal/controlplane/http/workspaces.go
 internal/controlplane/http/intakes.go
-internal/controlplane/ui/templates/index.html
-internal/controlplane/ui/static/app.css
-internal/controlplane/ui/static/app.js
+web/embed.go
+web/package.json
+web/package-lock.json
+web/tsconfig.json
+web/vite.config.ts
+web/index.html
+web/src/main.tsx
+web/src/router.tsx
+web/src/api/
+web/src/routes/
+web/src/components/
+web/src/styles/
+web/dist/
 ```
 
 #### Acceptance
@@ -281,10 +301,19 @@ internal/controlplane/ui/static/app.js
 - JavaScript無効時も安全なError Pageを返す
 - 200% Zoomと狭いViewportで主要操作を失わない
 - Assetに外部URLが含まれない
+- `/ui/*`の直接Access/再読込が成功し、`/api/v1/*`はSPA Fallbackされない
+- TypeScript Strict CheckとProduction Buildが成功する
+- React Router Framework Modeまたは未承認Runtime Dependencyが含まれない
+- 再Build後の`web/dist`に未Commit差分がない
 
 #### Verification
 
 ```text
+npm --prefix web ci
+npm --prefix web run typecheck
+npm --prefix web test -- --run
+npm --prefix web run build
+git diff --exit-code -- web/dist
 go test -race ./internal/controlplane/... -count=1
 go test ./... -count=1
 ```
@@ -356,6 +385,8 @@ Run start endpointを無効化してもSave draftとCLI startを維持する。
 #### Scope
 
 - embedded asset verification
+- frontend lockfile and production dependency policy
+- source-to-dist reproducibility check
 - offline/no-external-resource test
 - macOS arm64/Linux amd64 build
 - command help and README
@@ -376,12 +407,18 @@ Run start endpointを無効化してもSave draftとCLI startを維持する。
 - `loop-engine serve --help`がRoot/Bind/Security Defaultを説明する
 - Binary一つでUIとCoreが起動する
 - Node.js/npm/Pythonなしで利用できる
+- `/ui/*`の全主要Routeを直接再読込できる
 - macOS/Linux buildが成功する
 - Critical/HighのSecurity/Architecture Review Findingがない
 
 #### Verification
 
 ```text
+npm --prefix web ci
+npm --prefix web run typecheck
+npm --prefix web test -- --run
+npm --prefix web run build
+git diff --exit-code -- web/dist
 gofmt -w cmd internal
 go test -race ./... -count=1
 go vet ./...
@@ -415,4 +452,4 @@ Reviewer verdictが`approved`かつGate Evaluatorが対象Hashと必須検証を
 - 各Milestoneが独立してTest/Review/Rollback可能である
 - Browser閉鎖とServer再起動のOwnershipが明確である
 - Remote公開を初期Scopeに含めない
-- AC-034〜AC-043が少なくとも一つのMilestoneへ追跡できる
+- AC-034〜AC-048が少なくとも一つのMilestoneへ追跡できる

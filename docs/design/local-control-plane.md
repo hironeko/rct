@@ -1,8 +1,8 @@
 # Local Browser Control Plane 詳細設計
 
-- 文書版: 0.1.0-draft
+- 文書版: 0.2.0-draft
 - 作成日: 2026-08-02
-- 対応要件: `docs/requirements.md` 0.6.0-draft FR-190〜FR-208
+- 対応要件: `docs/requirements.md` 0.6.1-draft FR-190〜FR-214
 - 対応ADR: `docs/architecture.md` ADR-010
 - 状態: Claude Architecture Review待ち
 
@@ -30,7 +30,8 @@ Inbound Adapterであり、正式状態は既存のState Store、Artifact Store�
 - Source Scaffold、Dependency install、`git init`の暗黙実行
 - Browserを閉じたときのRun自動Cancel
 - CLIと異なるWorkflowまたはApproval規則
-- React、Node.js、npmをRuntime依存にすること
+- React、Node.js、npmを配布BinaryのRuntime依存にすること
+- Full-stack Web Framework、SSR、React Server Components
 
 ## 3. UXフロー
 
@@ -414,19 +415,89 @@ Autoescapeを維持し、`template.HTML`へ変換しない。
 
 ## 9. Frontend構成
 
-Go `embed.FS`へ次を埋め込む。
+### 9.1 Technology boundary
+
+Frontendは次の小さい構成に固定する。
+
+- Language: TypeScript Strict Mode + TSX
+- UI: React + React DOM
+- Routing: React Router Data Mode (`createBrowserRouter`)
+- Build tool: Vite
+- Styling: Plain CSS + CSS Custom Properties
+- Server/API: 既存Go HTTP Adapter (`/api/v1`)
+
+ViteはFrameworkではなく開発Serverと静的Asset Builderとしてだけ使う。React Routerの
+Framework Mode、`@react-router/dev`、SSR/SSG、Route Module Convention、Next.js、Remixは使わない。
+Data Modeの`loader`、`action`、pending stateを使用してよいが、正式なState TransitionとValidationは
+常にGo Application Serviceが所有する。
+
+### 9.2 Source and embedded asset layout
+
+Go `embed.FS`へProduction Assetを埋め込む。
 
 ```text
-internal/controlplane/ui/
-├── templates/
-│   └── index.html
-└── static/
-    ├── app.css
-    └── app.js
+web/
+├── embed.go
+├── package.json
+├── package-lock.json
+├── tsconfig.json
+├── vite.config.ts
+├── index.html
+├── src/
+│   ├── main.tsx
+│   ├── router.tsx
+│   ├── api/
+│   │   ├── client.ts
+│   │   └── types.ts
+│   ├── routes/
+│   ├── components/
+│   └── styles/
+└── dist/
+    ├── index.html
+    ├── manifest.json
+    └── assets/
 ```
 
-SPA Frameworkは使わず、Server-rendered Shellと小さなVanilla JavaScriptを使用する。
-目的はRuntime/Build依存を減らし、UIを一つのGo Binaryへ含めることにある。
+`vite.config.ts`では`build.manifest: "manifest.json"`を指定し、Dot-prefixed Directoryの
+`go:embed`除外規則へ依存しない。`embed.go`は`//go:embed dist`でDirectory全体を保持する。
+
+`dist/`はGenerated Artifactだが、`go install`とGo-only Source BuildでUIを欠落させないためRepositoryへ
+Commitする。CIは`npm ci && npm run build`後に`git diff --exit-code -- web/dist`を実行し、Source、Lockfile、
+Manifest、埋込Assetの乖離を拒否する。Release Buildも同じ手順で再生成してからGo Binaryを作る。
+
+Node.js、npm、ViteはFrontend開発と再生成にだけ必要である。Release Binaryの利用者には要求しない。
+Production DependencyはReact、React DOM、React Routerを基本上限とする。
+
+### 9.3 Routes
+
+Router basenameは`/ui`とし、次を定義する。
+
+| Route | Responsibility |
+|---|---|
+| `/ui/` | Home、primary actions、recent runs |
+| `/ui/requests/new` | Existing project request form |
+| `/ui/applications/new` | New application form |
+| `/ui/intakes/:intakeId` | Saved intake confirmation and start action |
+| `/ui/runs/:runId` | Run state, review round, artifacts, failure reason |
+
+Go Serverは`GET /ui/*`のうちStatic AssetとAPIに一致しないPathへ`dist/index.html`を返す。`/api/v1/*`、
+`/ui/assets/*`、未知の非UI PathはFallback対象外とする。Vite `base`は`/ui/`、Asset名はContent Hash付きとする。
+
+### 9.4 Client/server contract
+
+`web/src/api/types.ts`に公開DTOを集約し、`client.ts`だけが`fetch`を直接使用する。Mutationは
+Session Cookie、CSRF Header、Idempotency Key、JSON Content-Typeを含める。React Router `action`は
+API Clientを呼び出すだけで、Path解決、Provider Default導出、Run生成を実装しない。
+
+Route `loader`は再読込可能なServer Stateを取得する。Form DraftとNavigation StateだけをClientへ保持し、
+Intake/Runの正式状態はAPI Responseから再構成する。Local StorageへSession Token、絶対Path、Prompt、
+Run Stateを保存しない。
+
+### 9.5 Rendering and failure behavior
+
+初期HTMLは静的なReact mount pointと外部Module Script/CSSだけを含み、Inline Script/Styleを使わない。
+各RouteにError Boundary、Loading表示、空状態を設け、APIの`request_id`を利用者向けErrorへ表示する。
+JavaScriptが無効またはAssetが欠落した場合、Go Serverは安全な静的Error Pageを返し、Mutationを実行しない。
 
 Client StateはForm Draftと表示中Runだけに限定する。正式なIntake/Run StateはAPIから取得する。
 
@@ -485,6 +556,8 @@ Option:
 - Fake Application Service invocation
 - CLI and Web StartRunInput equivalence
 - no external asset references
+- `/ui/*` deep-link fallback and `/api/v1` exclusion
+- TypeScript API DTO and Go JSON fixture compatibility
 
 ### Integration
 
@@ -494,6 +567,17 @@ Option:
 - duplicate submission
 - restart and Run rediscovery
 - Browser disconnect while Fake Run continues
+- React Router actionからCSRF/Idempotencyを含むFake API mutation
+- Production Assetを埋め込んだGo Binaryだけでのoffline route load
+
+### Frontend
+
+- TypeScript strict type check
+- Route loader/action and Error Boundary tests
+- New request / New application form tests
+- Keyboard, focus order, error summary tests
+- Production dependency policy test
+- `web/dist` reproducibility test
 
 実Providerは通常Testで起動しない。
 
@@ -509,6 +593,7 @@ Option:
 | Run display/recovery | FR-200, FR-201, AC-041 |
 | HTTP security | FR-202〜204, FR-206, AC-039, AC-040 |
 | Accessibility/runtime | FR-203, FR-207, AC-040, AC-043 |
+| React/TypeScript boundary | FR-209〜214, AC-044〜048 |
 
 ## 14. Implementation entry conditions
 
@@ -516,4 +601,5 @@ Option:
 - `docs/implementation-plan-local-control-plane.md`がPlan Reviewで承認されている
 - Workspace no-follow方式がmacOS/Linuxで検証可能な形に分離されている
 - Shared Application Serviceの境界がPlan/Implementation Loopの設計と競合しない
+- React Router Data ModeとGenerated Asset commit方針が独立Reviewで承認されている
 - 一度に一つのMilestoneだけを実装する
