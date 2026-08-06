@@ -158,12 +158,13 @@ func (s *Service) Start(_ context.Context, options StartOptions) (domain.Run, er
 	}
 	now := s.deps.Now().UTC()
 	run := domain.Run{
-		SchemaVersion: "1.0",
-		ID:            runID,
-		Project:       project,
-		Mode:          mode,
-		Backend:       string(backend),
-		State:         domain.StateIntake,
+		SchemaVersion:        "1.0",
+		EventProtocolVersion: domain.ProgressSchemaVersion,
+		ID:                   runID,
+		Project:              project,
+		Mode:                 mode,
+		Backend:              string(backend),
+		State:                domain.StateIntake,
 		Roles: map[domain.Role]domain.RoleBinding{
 			domain.RoleDesigner: {
 				Role:      domain.RoleDesigner,

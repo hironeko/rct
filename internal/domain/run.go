@@ -67,6 +67,7 @@ type RoleBinding struct {
 
 type Run struct {
 	SchemaVersion        string               `json:"schema_version"`
+	EventProtocolVersion string               `json:"event_protocol_version,omitempty"`
 	ID                   string               `json:"id"`
 	Project              string               `json:"project"`
 	Mode                 RunMode              `json:"mode"`

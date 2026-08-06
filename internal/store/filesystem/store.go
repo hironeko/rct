@@ -1,6 +1,7 @@
 package filesystem
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/hironeko/rct/internal/domain"
 )
@@ -44,12 +46,13 @@ func (s *Store) Create(run domain.Run, request string) error {
 	state = append(state, '\n')
 
 	event := map[string]any{
-		"seq":          1,
-		"timestamp":    run.CreatedAt,
-		"run_id":       run.ID,
-		"type":         "RunStarted",
-		"state_before": nil,
-		"state_after":  run.State,
+		"schema_version": domain.ProgressSchemaVersion,
+		"seq":            1,
+		"timestamp":      run.CreatedAt,
+		"run_id":         run.ID,
+		"type":           "RunStarted",
+		"state_before":   nil,
+		"state_after":    run.State,
 	}
 	eventData, err := json.Marshal(event)
 	if err != nil {
@@ -86,6 +89,13 @@ func (s *Store) LoadCurrent() (domain.Run, error) {
 		return domain.Run{}, errors.New("current run reference is empty")
 	}
 
+	return s.loadRun(runID)
+}
+
+func (s *Store) Load(runID string) (domain.Run, error) {
+	if _, err := cleanRunID(runID); err != nil {
+		return domain.Run{}, err
+	}
 	return s.loadRun(runID)
 }
 
@@ -247,22 +257,72 @@ func (s *Store) persistUpdate(run domain.Run, previous domain.WorkflowState, eve
 		return fmt.Errorf("write run state: %w", err)
 	}
 
-	event := map[string]any{
-		"timestamp":    run.UpdatedAt,
-		"run_id":       run.ID,
-		"type":         eventType,
-		"state_before": previous,
-		"state_after":  run.State,
-		"revision":     run.Revision,
+	return s.appendEventLocked(run, domain.ProgressEvent{
+		Timestamp: run.UpdatedAt, RunID: run.ID, Type: eventType,
+		StateBefore: string(previous), StateAfter: string(run.State),
+		Data: map[string]any{"revision": run.Revision},
+	})
+}
+
+func (s *Store) AppendProgressEvent(runID string, event domain.ProgressEvent) (domain.ProgressEvent, error) {
+	var persisted domain.ProgressEvent
+	err := s.withRunStateLock(runID, func() error {
+		run, err := s.loadRun(runID)
+		if err != nil {
+			return err
+		}
+		event.RunID = runID
+		if event.Timestamp.IsZero() {
+			event.Timestamp = time.Now().UTC()
+		}
+		if err := s.appendEventLocked(run, event); err != nil {
+			return err
+		}
+		events, err := s.ReadEvents(runID, 0)
+		if err != nil {
+			return err
+		}
+		if len(events) > 0 {
+			persisted = events[len(events)-1]
+		}
+		return nil
+	})
+	return persisted, err
+}
+
+func (s *Store) appendEventLocked(run domain.Run, event domain.ProgressEvent) error {
+	logPath := filepath.Join(s.runDir(run.ID), "events.jsonl")
+	events, err := s.ReadEvents(run.ID, 0)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	eventData, err := json.Marshal(event)
+	if run.EventProtocolVersion == domain.ProgressSchemaVersion {
+		event.SchemaVersion = domain.ProgressSchemaVersion
+		event.Sequence = uint64(len(events) + 1)
+	}
+	var eventData []byte
+	if run.EventProtocolVersion == domain.ProgressSchemaVersion {
+		eventData, err = json.Marshal(event)
+	} else {
+		legacy := map[string]any{
+			"timestamp": event.Timestamp, "run_id": event.RunID, "type": event.Type,
+			"state_before": event.StateBefore, "state_after": event.StateAfter,
+		}
+		for key, value := range event.Data {
+			legacy[key] = value
+		}
+		eventData, err = json.Marshal(legacy)
+	}
 	if err != nil {
 		return fmt.Errorf("encode run event: %w", err)
 	}
-	logPath := filepath.Join(s.runDir(run.ID), "events.jsonl")
-	file, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0o600)
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("open event log: %w", err)
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return err
 	}
 	if _, err := file.Write(appendNewline(eventData)); err != nil {
 		_ = file.Close()
@@ -276,6 +336,107 @@ func (s *Store) persistUpdate(run domain.Run, previous domain.WorkflowState, eve
 		return fmt.Errorf("close event log: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) ReadEvents(runID string, after uint64) ([]domain.ProgressEvent, error) {
+	run, err := s.loadRun(runID)
+	if err != nil {
+		return nil, err
+	}
+	file, err := os.Open(filepath.Join(s.runDir(runID), "events.jsonl"))
+	if err != nil {
+		return nil, fmt.Errorf("open event log: %w", err)
+	}
+	defer file.Close()
+	var result []domain.ProgressEvent
+	scanner := bufio.NewScanner(file)
+	buffer := make([]byte, 64*1024)
+	scanner.Buffer(buffer, 1024*1024)
+	var line uint64
+	var previous uint64
+	for scanner.Scan() {
+		line++
+		var event domain.ProgressEvent
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+			return nil, fmt.Errorf("decode event line %d: %w", line, err)
+		}
+		if run.EventProtocolVersion == domain.ProgressSchemaVersion {
+			if event.Sequence == 0 || event.Sequence <= previous {
+				return nil, fmt.Errorf("invalid progress event sequence at line %d", line)
+			}
+			previous = event.Sequence
+		} else {
+			event.Sequence = line
+		}
+		if event.Sequence > after {
+			result = append(result, event)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read event log: %w", err)
+	}
+	return result, nil
+}
+
+func (s *Store) WriteActivity(activity domain.CurrentActivity) (domain.CurrentActivity, error) {
+	if activity.RunID == "" {
+		return activity, errors.New("activity run id is required")
+	}
+	err := s.withActivityLock(activity.RunID, func() error {
+		current, err := s.LoadActivity(activity.RunID)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		activity.SchemaVersion = domain.ProgressSchemaVersion
+		activity.Revision = current.Revision + 1
+		data, err := json.MarshalIndent(activity, "", "  ")
+		if err != nil {
+			return fmt.Errorf("encode activity: %w", err)
+		}
+		if err := writeAtomic(filepath.Join(s.runDir(activity.RunID), "activity.json"), appendNewline(data), 0o600); err != nil {
+			return fmt.Errorf("write activity: %w", err)
+		}
+		return nil
+	})
+	return activity, err
+}
+
+func (s *Store) LoadActivity(runID string) (domain.CurrentActivity, error) {
+	data, err := os.ReadFile(filepath.Join(s.runDir(runID), "activity.json"))
+	if err != nil {
+		return domain.CurrentActivity{}, err
+	}
+	var activity domain.CurrentActivity
+	if err := json.Unmarshal(data, &activity); err != nil {
+		return domain.CurrentActivity{}, fmt.Errorf("decode activity: %w", err)
+	}
+	return activity, nil
+}
+
+func (s *Store) Progress(runID string) (domain.ProgressSnapshot, error) {
+	run, err := s.Load(runID)
+	if err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
+	activity, activityErr := s.LoadActivity(runID)
+	var activityPtr *domain.CurrentActivity
+	if activityErr == nil {
+		if activity.Status == domain.ActivityRunning && time.Since(activity.LastHeartbeatAt) >= 30*time.Second {
+			activity.Status = domain.ActivityStale
+		}
+		activityPtr = &activity
+	} else if !errors.Is(activityErr, os.ErrNotExist) {
+		return domain.ProgressSnapshot{}, activityErr
+	}
+	events, err := s.ReadEvents(runID, 0)
+	if err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
+	var last uint64
+	if len(events) > 0 {
+		last = events[len(events)-1].Sequence
+	}
+	return domain.ProjectProgress(run, activityPtr, last), nil
 }
 
 func (s *Store) withRunStateLock(runID string, action func() error) error {
@@ -292,8 +453,29 @@ func (s *Store) withRunStateLock(runID string, action func() error) error {
 	return action()
 }
 
+func (s *Store) withActivityLock(runID string, action func() error) error {
+	lockPath := filepath.Join(s.runDir(runID), "activity.lock")
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("open activity lock: %w", err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("acquire activity lock: %w", err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	return action()
+}
+
 func (s *Store) runDir(runID string) string {
 	return filepath.Join(s.project, stateDirectory, "runs", runID)
+}
+
+func cleanRunID(runID string) (string, error) {
+	if strings.TrimSpace(runID) == "" || filepath.Base(runID) != runID || runID == "." || runID == ".." {
+		return "", fmt.Errorf("invalid run id %q", runID)
+	}
+	return runID, nil
 }
 
 func appendNewline(data []byte) []byte {
