@@ -1,8 +1,8 @@
 # rct アーキテクチャ設計書
 
-- 文書版: 0.10.2-draft
+- 文書版: 0.10.3-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.11.2-draft
+- 対応要件: `requirements.md` 0.11.3-draft
 - Draft拡張注記: Document Artifact移行方針、Approval Gate責務分離、Live Progress、rct名称移行を含む。
 - 実装言語: Go
 - 対象OS: macOS / Linux
@@ -1259,7 +1259,7 @@ Review round: 2/3
 Previous review verdict: changes_requested (3 required changes)
 Started: 2026-08-02T15:40:50Z (elapsed 21s)
 Last activity: 2026-08-02T15:41:00Z (live)
-Overall: [######--------] 3/7 phases complete
+Overall: [####------------] 2/8 phases complete
 Review budget: round 2/3
 ```
 
@@ -1671,7 +1671,9 @@ Spike結果によりProvider AdapterとRuntime Backendの詳細だけを調整�
 - Transport: Terminalはstderr、AutomationはJSONL、BrowserはSequence付きSSEとPolling Fallbackを用いる。
   Transport切断や遅いConsumerをWorkflow Failureへ伝播させない
 - Gauge: Run Modeから固定されたMacro PhaseのGate通過数だけを全体Gaugeとし、承認済みPlanのMilestone Gaugeと
-  Review Budgetを分離する。Agent内部PercentageやETAを推測しない
+  Review Budgetを分離する。Supervised Implementation RunではGit/Environmentの`implementation_preflight`を
+  Human Approvalより前の独立Phaseとして数え、`GIT_BOOTSTRAP_REQUIRED`を具体的なWaiting Reasonとして表示する。
+  Agent内部PercentageやETAを推測しない
 - Notification: Human Attention EventだけをLocal Notification Portへ送り、送信失敗をWorkflowへFeedbackしない。
   Prompt、Raw Error、Absolute Path、Credentialを通知Payloadへ含めない
 - Backend境界: Direct、Herdr、tmuxの表示はrctのJob制御点から共通Eventへ正規化し、未Submit Sessionの

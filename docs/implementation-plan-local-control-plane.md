@@ -1,8 +1,8 @@
 # Local Browser Control Plane 実装計画
 
-- 文書版: 0.4.2-draft
+- 文書版: 0.4.3-draft
 - 作成日: 2026-08-02
-- 対応設計: `docs/design/local-control-plane.md` 0.4.2-draft、`docs/design/live-progress-and-run-observability.md` 0.2.0-draft
+- 対応設計: `docs/design/local-control-plane.md` 0.4.3-draft、`docs/design/live-progress-and-run-observability.md` 0.2.1-draft
 - 状態: 計画完了（実装未着手）
 
 ## 1. 実装原則
@@ -381,6 +381,7 @@ internal/controlplane/ui/
 - SSE不能時のPollingでも同じSnapshotとTerminal Stateへ収束する
 - Human Approval待ちを無限Spinnerでなく具体的なNext Actionとして表示する
 - Gaugeが完了済みGateだけを数え、Review Roundや実行中JobをPercentage化しない
+- Git Bootstrap待ちはPreflight `3/8`と具体的なNext Action、Preflight通過後はApproval待ち`4/8`を表示する
 - Raw Log、Prompt、Credential、絶対PathをBrowser DTOとDOMへ出さない
 
 #### Verification

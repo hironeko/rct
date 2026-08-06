@@ -1,9 +1,9 @@
 # Live Progress and Run Observability 詳細設計
 
-- 文書版: 0.2.0-draft
+- 文書版: 0.2.1-draft
 - 作成日: 2026-08-03
-- ステータス: Claude追加Review待ち（0.1.1はApproved）
-- 対応要件: `docs/requirements.md` 0.11.2-draft（FR-250〜274、AC-073〜088）
+- ステータス: Claude指摘対応済み・Follow-up Review待ち（0.1.1はApproved）
+- 対応要件: `docs/requirements.md` 0.11.3-draft（FR-250〜274、AC-073〜088）
 - 対応ADR: `docs/architecture.md` ADR-012
 
 ## 1. 目的
@@ -159,29 +159,52 @@ Heartbeat回復時は`ActivityRecovered`を一度発行するため、通知Dedu
 Phaseは少なくとも次の順序を持つ。
 
 ```text
-intake -> requirements -> architecture -> plan -> implementation_approval
-       -> milestones -> final_verification -> final_review -> completed
+intake -> requirements -> architecture -> plan -> implementation_preflight
+       -> implementation_approval -> milestones -> final_verification
+       -> final_review -> completed
 ```
 
 各Phase Statusは`not_started|running|changes_requested|approved|waiting|failed|completed`とする。Milestoneは
 子項目として展開できる。Phase順序は表示用であり、不正なState遷移を補正しない。
 
+`IMPLEMENTATION_PREFLIGHT`は`implementation_preflight`へ一対一で写像する。Git未初期化などで
+`WAITING_FOR_HUMAN / GIT_BOOTSTRAP_REQUIRED`へ停止した場合は、このPhaseを`waiting`とし、Reason、
+`rct init --project <path>`、`rct resume --project <path>`を安全なNext Actionとして表示する。
+`implementation_approval`へまとめず、Preflightが完了するまでHuman Approval待ちを表示しない。
+
 ### 5.4 Gauge projection
 
-全体GaugeはRun開始時にModeから固定されるMacro Phaseだけを単位にする。Supervised Implementation Runの例:
+全体GaugeはRun開始時にModeから固定されるMacro Phaseだけを単位にする。
 
 ```text
-requirements, architecture, plan, implementation_approval,
-implementation, final_verification, final_review
+design-only (3):
+  requirements, architecture, plan
+
+supervised implementation (8):
+  requirements, architecture, plan, implementation_preflight,
+  implementation_approval, implementation, final_verification, final_review
+
+autonomous implementation (7):
+  requirements, architecture, plan, implementation_preflight,
+  implementation, final_verification, final_review
 ```
 
-分子は対応Gateを通過したPhase数、分母は固定された7である。Current Phaseは分子へ含めない。RevisionやRetryで
+分子は対応Gateを通過したPhase数、分母はRun Modeごとに上記の値へ固定する。Current Phaseは分子へ含めない。
+`implementation_preflight`は有効なGit Baseline Receipt、Plan Hash、Project条件、必要なWriter Lease検査を通過した
+場合だけ完了とする。`GIT_BOOTSTRAP_REQUIRED`、環境不足、Lease競合では`3/8`のままReasonとNext Actionを示す。
+Preflight通過後にSupervised RunがHuman Approval待ちへ進むと`4/8`になる。RevisionやRetryで
 完了済みGateがStaleになった場合は、Gaugeを静かに後退させず`plan changed — re-approval required`のような
 Invalidation状態を表示し、新しいBindingが確定した時点で別Gauge Revisionとして初期化する。
 
 Implementation内は承認済みPlanへBindingされたMilestone数を別Gaugeで表示する。MilestoneはImplementation、
 Verification、Code Reviewを通過して初めて完了に数える。Review Roundは完了度ではなく有限Budgetなので、
 `round 2/3`と表示しPercentageへ変換しない。
+
+Final Reviewが`changes_requested`となり、Coreが最後の実Milestone IDを使用してRemediationを行う場合も、既に
+VerificationとCode Reviewを通過したMilestone Gaugeは`N/N`を維持する。これはMilestone承認履歴を表すためであり、
+Remediationを完了扱いするものではない。Current Activityを`final_review_remediation`、Final Review Phaseを
+`changes_requested`として表示し、コード変更によりFinal Verification Bindingが無効になった場合はMacro Gaugeを
+明示的な新Revisionへ切り替えて`final verification required again`と示す。
 
 ```go
 type Gauge struct {
@@ -194,6 +217,11 @@ type Gauge struct {
     Reason      string
 }
 ```
+
+GaugeはState、Semantic Event、Run Mode、Approval Record、Git Baseline Receipt、Approved Plan Binding、
+Completed Milestoneから決定的に再構築するProjectionである。保存済みGaugeはCacheとして扱い、欠落または不整合時は
+Authority Dataから再構築する。`Gauge.Revision`はRun State Revisionの代替ではなく、Plan/Baseline/Final Verification
+Bindingの明示的な切替を利用者へ区別して表示するために使う。
 
 ## 6. Persistence
 
@@ -313,7 +341,7 @@ Implementation Plan ● Claude reviewing v2 · round 2/3 · 21s
 Human approval      ○ waiting for Plan
 Implementation      ○ not started
 
-Overall              [######--------] 3/7 phases complete
+Overall              [####------------] 2/8 phases complete
 
 Last activity: 1s ago · direct · plan-r02-reviewer
 ```
@@ -334,7 +362,7 @@ Flags:
 Progressはstderr、最終Resultはstdoutへ出す。`--json`はstdoutに単一JSONを維持する。非TTY、`NO_COLOR`、
 `TERM=dumb`ではColorやCursor制御を必須にしない。
 
-TTY GaugeはTerminal幅に応じてSegmentまたはBar表示する。ASCII Fallbackでは`[######--------] 3/7`を使用する。
+TTY GaugeはTerminal幅に応じてSegmentまたはBar表示する。ASCII Fallbackでは`[####------------] 2/8`を使用する。
 非TTYはGauge値が変化したときだけ一行Eventとして出し、毎Heartbeatで同じGaugeを再出力しない。
 
 ### 9.2 Status
@@ -389,6 +417,11 @@ Prompt、Project Path、Artifact本文、Raw ErrorをOS Notificationへ渡さな
 埋め込まない。`osascript`と`notify-send`はShell経由で文字列連結せず引数配列として起動し、AppleScript本文と
 通知Templateは固定する。
 
+Run IDはrctがUTC TimestampとCryptographic Random 6 bytesのLowercase Hexから
+`run_YYYYMMDDThhmmssZ_<12 hex>`形式で生成する。通知前にもこの形式へ一致する値だけをShort Run IDへ変換し、
+利用者入力や外部Provider出力をRun IDとして補間しない。したがって固定Template、Shell非経由、生成形式検証の
+三層でAppleScript/`notify-send` Injectionを防ぐ。
+
 NotifierはProcess内で`(run_id, event_sequence, channel)`をDeduplicateする。Command開始時のSnapshotやReplay Eventは
 Defaultで通知せず、Live観測後の新しいAttention Eventだけを対象にする。複数の明示的Watcherはそれぞれ独立Observer
 なので各Terminalで通知され得るが、同じWatcher Process内では重複しない。Notification結果はEvent LogへWorkflow
@@ -400,14 +433,15 @@ Eventとして戻さず、Job再実行やExit Code変更を起こさない。
 ┌─────────────────────────────────────────────────────────────────┐
 │ new-ios-game-app · run_...                     LIVE · direct    │
 │ PLAN_REVIEW · supervised                        last seen 1s ago │
-│ Overall progress              ██████░░░░░░ 3/7 phases complete │
+│ Overall progress             ████░░░░░░░░░░░░ 2/8 phases complete │
 ├──────────────────────────────┬──────────────────────────────────┤
 │ Current activity             │ Phase timeline                   │
 │ Claude · Reviewer            │ ✓ Requirements (2 rounds)        │
 │ Reviewing Plan v2            │ ✓ Architecture (2 rounds)        │
 │ Round 2 of 3 · 00:21         │ ● Plan · reviewing v2            │
-│ Previous: changes requested  │ ○ Human approval                 │
-│ 3 required changes           │ ○ Implementation                 │
+│ Previous: changes requested  │ ○ Implementation preflight       │
+│ 3 required changes           │ ○ Human approval                 │
+│                              │ ○ Implementation                 │
 ├──────────────────────────────┴──────────────────────────────────┤
 │ Recent events                                                   │
 │ 00:40 Plan v2 produced  · 00:40 Claude review started           │
@@ -433,8 +467,12 @@ DesktopではCurrent ActivityとTimelineを二Column、狭いViewportではActiv
 Colorだけを意味に使わず、Reduced MotionではPulseを無効化する。Live RegionはPhase変更、Failure、Human Actionだけを
 `polite`または必要時`assertive`に通知し、Heartbeatは読み上げない。
 
-GaugeはNative `<progress>`相当のSemanticsと`3 of 7 phases complete`のAccessible Nameを持たせる。Current Phaseを
+GaugeはNative `<progress>`相当のSemanticsと`2 of 8 phases complete`のAccessible Nameを持たせる。Current Phaseを
 完了分へ含めず、Review RoundはGaugeにしない。Milestone GaugeはPlan Approval後だけ表示する。
+
+Preflight待ちでは`3 of 8 phases complete`、`Implementation preflight — waiting`、
+`Git bootstrap required`、Next Actionを同時に表示する。BarだけでHuman Approval待ちとGit Bootstrap待ちを
+区別させない。
 
 ## 11. Query API and live transport
 
@@ -528,6 +566,8 @@ Error Summaryは既知Error Codeから構築し、Raw stderrの先頭行を無�
 - Event Sequence、Legacy Reader、Projection再構築
 - TTY/plain/JSONL Rendererとstdout/stderr分離
 - Macro Phase/Milestone Gaugeの固定分母、Invalidation、ASCII Fallback
+- Preflight `3/8`、Preflight完了後Approval待ち`4/8`、Bootstrap Next Action
+- Event/StateからのGauge再構築とCache不整合Recovery
 - Notification Filter、Deduplicate、Safe PayloadをFake Sinkで検証
 - Heartbeat/staleをFake Clockで検証
 - Public DTO Redaction
@@ -580,3 +620,4 @@ Claude Reviewでは特に次を確認する。
 8. Direct、Herdr、tmuxの所有関係と正規化境界が十分か。
 9. Gaugeが未知のAI進捗やReview Budgetを完了Percentageと誤認させないか。
 10. Notification Adapterが秘密情報、Shell Injection、重複通知、Workflowへの副作用を防げているか。
+11. Implementation Preflight、Git Bootstrap待ち、Human Approval待ちをGaugeとTimelineで誤認させないか。

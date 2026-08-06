@@ -1,6 +1,6 @@
 # rct 要件定義書
 
-- 文書版: 0.11.2-draft
+- 文書版: 0.11.3-draft
 - ステータス: Draft（rct Core Loop実装済み、拡張機能は設計段階）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
@@ -1565,13 +1565,16 @@ BrowserのRun Detailは、少なくとも次を視覚的に区別して表示す
 
 - Run全体StateとMode
 - 現在Activity Card（担当、Action、Round、経過時間、Liveness）
-- Requirements、Architecture、Plan、Human Approval、Milestone、Final ReviewのPhase Timeline
+- Requirements、Architecture、Plan、Implementation Preflight、Human Approval、Milestone、Final ReviewのPhase Timeline
 - 完了、実行中、待機、修正中、失敗をText、Icon、Shapeで識別可能な状態
 - Previous ReviewのSummaryとRequired Change件数
 - 主要Artifact Link
 - Error/Waiting Reasonと次に取れるAction
 
 Activityのない待機状態を無限Spinnerで表示せず、Human Approval待ちなど具体的な理由を表示すること。
+`IMPLEMENTATION_PREFLIGHT`が`GIT_BOOTSTRAP_REQUIRED`で停止した場合は、Current PhaseをImplementation Preflight、
+StatusをWaiting、ReasonをGit Bootstrap Requiredとし、CLIでは`rct init`と`rct resume`、Browserでは対応する
+安全な次Actionを明示すること。Human Approval待ちへ誤って分類してはならない。
 
 #### FR-264
 
@@ -1631,9 +1634,29 @@ Progress Sequenceへ正規化されることを検証すること。
 
 CLIとBrowserは、完了を客観的に判定できるWorkflow Macro PhaseについてSegmented Progress Gaugeを表示できること。
 Gaugeの分子はGateを通過して完了したPhase数、分母はRun Modeから開始時に確定するMacro Phase数とし、Revision、
-Retry、Heartbeatによって減少または増加させてはならない。実行中Phaseは分子へ含めず、Textで`3 of 7 phases complete`
+Retry、Heartbeatによって減少または増加させてはならない。実行中Phaseは分子へ含めず、Textで`N of M phases complete`
 のように併記すること。Agent Job内部の進み具合、未知の残り時間、Review Round消費率を完了Percentageとして
 表示してはならない。
+
+Macro Phase集合は少なくとも次とする。
+
+```text
+design-only:
+  requirements, architecture, plan
+
+supervised implementation:
+  requirements, architecture, plan, implementation_preflight,
+  implementation_approval, implementation, final_verification, final_review
+
+autonomous implementation:
+  requirements, architecture, plan, implementation_preflight,
+  implementation, final_verification, final_review
+```
+
+`implementation_preflight`は有効なGit Baseline Receiptと必要なProject Writer条件を確認した場合だけ完了に数えること。
+`GIT_BOOTSTRAP_REQUIRED`、環境不足、Lease競合による待機は完了に数えず、具体的なWaiting Reasonを表示すること。
+GaugeはState、Event、Run Mode、Approval/Git Baseline/Plan Bindingから決定的に再構築可能なProjectionとし、
+永続化する場合もWorkflow Authorityとして使用してはならない。
 
 #### FR-272
 
@@ -2337,9 +2360,11 @@ Jobが失敗すると、CLIとBrowserはProvider、Job ID、Phase、経過時間
 
 ### AC-085
 
-Requirements、Architecture、Planが承認済みでImplementation Approval待ちのRunは、Macro Phase Gaugeを
-`3 of 7 phases complete`のように表示する。RequirementsやPlanのRevision Roundが増えてもGaugeの分母は変化せず、
-実行中Phaseを完了扱いせず、表示値が後退しない。TTY、Plain Text、Browserで分子と分母が一致する。
+Requirements、Architecture、Planが承認済みでGit未初期化のSupervised Runは、Macro Phase Gaugeを
+`3 of 8 phases complete`、Current PhaseをImplementation Preflight、StatusをWaiting、Reasonを
+`GIT_BOOTSTRAP_REQUIRED`として表示し、`rct init`と`rct resume`を次Actionに示す。BootstrapとPreflight完了後に
+Implementation Approval待ちへ進むと`4 of 8 phases complete`になる。RequirementsやPlanのRevision Roundが増えても
+Gaugeの分母は変化せず、実行中・待機中Phaseを完了扱いしない。TTY、Plain Text、Browserで分子と分母が一致する。
 
 ### AC-086
 

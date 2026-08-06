@@ -1,8 +1,8 @@
 # Local Browser Control Plane 詳細設計
 
-- 文書版: 0.4.2-draft
+- 文書版: 0.4.3-draft
 - 作成日: 2026-08-02
-- 対応要件: `docs/requirements.md` 0.11.2-draft FR-190〜FR-214、FR-230〜FR-274
+- 対応要件: `docs/requirements.md` 0.11.3-draft FR-190〜FR-214、FR-230〜FR-274
 - 対応ADR: `docs/architecture.md` ADR-010、ADR-011、ADR-012
 - 状態: 設計完了（実装未着手）
 
@@ -540,9 +540,14 @@ Artifacts、Next Actionを別領域として表示する。
 Workflow Stateと現在Jobを一つのLabelへ混在させず、過去のVerdictは`Previous review verdict`と明示する。
 Human Approval待ちなどActivityのない待機状態は無限Spinnerにしない。
 
-Gaugeは完了済みGateだけを分子に含め、Textで`3 of 7 phases complete`を併記する。Review RoundはGaugeにせず、
+Gaugeは完了済みGateだけを分子に含め、Textで`N of M phases complete`を併記する。Review RoundはGaugeにせず、
 Plan Binding変更時は旧Milestone GaugeをCurrent Progressとして表示しない。Browser Notification APIは初期Scopeに
 含めず、CLI Local NotificationとBrowser内Live Regionを分離する。
+
+Supervised Implementation Runは`implementation_preflight`を独立Macro Phaseとして8分母に含める。
+`WAITING_FOR_HUMAN / GIT_BOOTSTRAP_REQUIRED`では`3 of 8 phases complete`、Preflight Waiting、Git Bootstrap
+Required、Next Actionを表示する。Preflight完了後のHuman Approval待ちは`4 of 8 phases complete`とし、両者を
+同じWaiting表示へまとめない。
 
 SSE ClientはSequenceで重複排除し、切断時に`Last-Event-ID`から再接続する。GapまたはSchema不一致ではRun
 Snapshotを再取得する。HeartbeatをScreen Readerへ毎回通知せず、Phase変更、Failure、Human Action要求だけを
