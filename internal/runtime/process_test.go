@@ -3,6 +3,8 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +15,19 @@ type signalWriter struct {
 	buf   bytes.Buffer
 	first chan struct{}
 	once  sync.Once
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("disk unavailable") }
+
+func TestDirectProcessRunnerStopsOnLogSinkFailure(t *testing.T) {
+	_, err := (DirectProcessRunner{}).Run(context.Background(), ProcessRequest{
+		Executable: "sh", Args: []string{"-c", "printf output"}, Stdout: failingWriter{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "LOG_SINK_WRITE_FAILED") {
+		t.Fatalf("Run() error = %v, want safe log sink failure", err)
+	}
 }
 
 func (w *signalWriter) Write(data []byte) (int, error) {

@@ -53,6 +53,8 @@ func (c *CLI) Run(ctx context.Context, args []string) int {
 		return c.runImplement(ctx, args[1:])
 	case "status":
 		return c.runStatus(args[1:])
+	case "watch":
+		return c.runWatch(ctx, args[1:])
 	case "version":
 		fmt.Fprintln(c.stdout, Version)
 		return 0
@@ -86,12 +88,18 @@ func (c *CLI) runStart(ctx context.Context, args []string) int {
 		"maximum requirements review rounds before waiting for a human",
 	)
 	asJSON := flags.Bool("json", false, "print JSON")
+	progress := flags.String("progress", "auto", "auto, tty, plain, jsonl, or none")
+	notify := flags.String("notify", "auto", "auto, desktop, bell, or none")
 
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if *until != "requirements" && *until != "plan" {
 		fmt.Fprintln(c.stderr, "start: --until must be requirements or plan")
+		return 2
+	}
+	if err := validateLiveOptions(*progress, *notify); err != nil {
+		fmt.Fprintf(c.stderr, "start: %v\n", err)
 		return 2
 	}
 
@@ -115,18 +123,22 @@ func (c *CLI) runStart(ctx context.Context, args []string) int {
 		return 1
 	}
 	if *execute {
+		observer := c.observeRun(ctx, filesystem.New(run.Project), run.ID, liveOptions{Progress: *progress, Notify: *notify, Writer: true})
 		run, err = c.service.ExecuteDesign(ctx, run, *maxReviewRounds)
 		if err != nil {
+			observer.Stop()
 			fmt.Fprintf(c.stderr, "start: execute design workflow: %v\n", err)
 			return 1
 		}
 		if *until == "plan" && run.State == domain.StateRequirementsApproved {
 			run, err = c.service.ExecutePlanning(ctx, run, *maxReviewRounds)
 			if err != nil {
+				observer.Stop()
 				fmt.Fprintf(c.stderr, "start: execute planning workflow: %v\n", err)
 				return 1
 			}
 		}
+		observer.Stop()
 	}
 
 	if *asJSON {
@@ -173,7 +185,13 @@ func (c *CLI) runPlan(ctx context.Context, args []string) int {
 	project := flags.String("project", ".", "project directory")
 	maxReviewRounds := flags.Int("max-review-rounds", 3, "maximum review rounds per planning artifact")
 	asJSON := flags.Bool("json", false, "print JSON")
+	progress := flags.String("progress", "auto", "auto, tty, plain, jsonl, or none")
+	notify := flags.String("notify", "auto", "auto, desktop, bell, or none")
 	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if err := validateLiveOptions(*progress, *notify); err != nil {
+		fmt.Fprintf(c.stderr, "plan: %v\n", err)
 		return 2
 	}
 	absoluteProject, err := filepath.Abs(*project)
@@ -186,7 +204,9 @@ func (c *CLI) runPlan(ctx context.Context, args []string) int {
 		fmt.Fprintf(c.stderr, "plan: %v\n", err)
 		return 1
 	}
+	observer := c.observeRun(ctx, filesystem.New(absoluteProject), run.ID, liveOptions{Progress: *progress, Notify: *notify, Writer: true})
 	run, err = c.service.ExecutePlanning(ctx, run, *maxReviewRounds)
+	observer.Stop()
 	if err != nil {
 		fmt.Fprintf(c.stderr, "plan: %v\n", err)
 		return 1
@@ -247,7 +267,13 @@ func (c *CLI) runImplement(ctx context.Context, args []string) int {
 	maxReviewRounds := flags.Int("max-review-rounds", 3, "maximum implementation review rounds per milestone")
 	maxVerificationAttempts := flags.Int("max-verification-attempts", 3, "maximum verification attempts per milestone")
 	asJSON := flags.Bool("json", false, "print JSON")
+	progress := flags.String("progress", "auto", "auto, tty, plain, jsonl, or none")
+	notify := flags.String("notify", "auto", "auto, desktop, bell, or none")
 	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if err := validateLiveOptions(*progress, *notify); err != nil {
+		fmt.Fprintf(c.stderr, "implement: %v\n", err)
 		return 2
 	}
 	absoluteProject, err := filepath.Abs(*project)
@@ -260,10 +286,12 @@ func (c *CLI) runImplement(ctx context.Context, args []string) int {
 		fmt.Fprintf(c.stderr, "implement: %v\n", err)
 		return 1
 	}
+	observer := c.observeRun(ctx, filesystem.New(absoluteProject), run.ID, liveOptions{Progress: *progress, Notify: *notify, Writer: true})
 	run, err = c.service.ExecuteImplementation(ctx, run, app.ImplementationOptions{
 		MaxReviewRounds:         *maxReviewRounds,
 		MaxVerificationAttempts: *maxVerificationAttempts,
 	})
+	observer.Stop()
 	if err != nil {
 		fmt.Fprintf(c.stderr, "implement: %v\n", err)
 		return 1
@@ -334,6 +362,7 @@ func (c *CLI) runStatus(args []string) int {
 	flags := flag.NewFlagSet("status", flag.ContinueOnError)
 	flags.SetOutput(c.stderr)
 	project := flags.String("project", ".", "project directory")
+	runID := flags.String("run", "", "run id; defaults to the project current run")
 	asJSON := flags.Bool("json", false, "print JSON")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -344,19 +373,48 @@ func (c *CLI) runStatus(args []string) int {
 		fmt.Fprintf(c.stderr, "status: resolve project: %v\n", err)
 		return 1
 	}
-	run, err := filesystem.New(absoluteProject).LoadCurrent()
+	store := filesystem.New(absoluteProject)
+	var run domain.Run
+	if strings.TrimSpace(*runID) == "" {
+		run, err = store.LoadCurrent()
+	} else {
+		run, err = store.Load(*runID)
+	}
+	if err != nil {
+		fmt.Fprintf(c.stderr, "status: %v\n", err)
+		return 1
+	}
+	snapshot, err := store.Progress(run.ID)
 	if err != nil {
 		fmt.Fprintf(c.stderr, "status: %v\n", err)
 		return 1
 	}
 	if *asJSON {
-		return c.writeJSON(run)
+		return c.writeJSON(snapshot)
 	}
 	fmt.Fprintf(c.stdout, "Run: %s\n", run.ID)
 	fmt.Fprintf(c.stdout, "Project: %s\n", run.Project)
 	fmt.Fprintf(c.stdout, "Backend: %s\n", run.Backend)
 	fmt.Fprintf(c.stdout, "Mode: %s\n", run.Mode)
 	fmt.Fprintf(c.stdout, "State: %s\n", run.State)
+	if strings.TrimSpace(*runID) == "" {
+		fmt.Fprintln(c.stdout, "Source: project current-run pointer")
+	}
+	if len(snapshot.Gauges) > 0 {
+		gauge := snapshot.Gauges[0]
+		fmt.Fprintf(c.stdout, "Overall progress: %d/%d %s\n", gauge.Completed, gauge.Total, gauge.Label)
+	}
+	if snapshot.Activity != nil {
+		fmt.Fprintf(c.stdout, "Current activity: %s · %s · %s\n", phaseDisplay(snapshot.Activity.Phase), snapshot.Activity.Provider, snapshot.Activity.Action)
+		fmt.Fprintf(c.stdout, "Job: %s\n", snapshot.Activity.JobID)
+		if snapshot.Activity.Round > 0 {
+			fmt.Fprintf(c.stdout, "Round budget: %d/%d\n", snapshot.Activity.Round, snapshot.Activity.MaxRounds)
+		}
+		fmt.Fprintf(c.stdout, "Liveness: %s\n", activityLiveness(snapshot.Activity))
+	}
+	if snapshot.NextAction != "" {
+		fmt.Fprintf(c.stdout, "Next action: %s\n", snapshot.NextAction)
+	}
 	if run.RequirementsRound > 0 {
 		fmt.Fprintf(c.stdout, "Requirements rounds: %d/%d\n", run.RequirementsRound, run.MaxReviewRounds)
 	}
@@ -404,6 +462,59 @@ func (c *CLI) runStatus(args []string) int {
 	if run.Failure != "" {
 		fmt.Fprintf(c.stdout, "Failure: %s\n", run.Failure)
 	}
+	return 0
+}
+
+func (c *CLI) runWatch(ctx context.Context, args []string) int {
+	flags := flag.NewFlagSet("watch", flag.ContinueOnError)
+	flags.SetOutput(c.stderr)
+	project := flags.String("project", ".", "project directory")
+	runID := flags.String("run", "", "run id; defaults to the project current run")
+	follow := flags.Bool("follow", false, "follow changes until the run needs attention or finishes")
+	format := flags.String("format", "plain", "plain or jsonl")
+	notify := flags.String("notify", "none", "auto, desktop, bell, or none")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if !oneOf(*format, "plain", "jsonl") {
+		fmt.Fprintln(c.stderr, "watch: --format must be plain or jsonl")
+		return 2
+	}
+	if !oneOf(*notify, "auto", "desktop", "bell", "none") {
+		fmt.Fprintln(c.stderr, "watch: --notify must be auto, desktop, bell, or none")
+		return 2
+	}
+	absoluteProject, err := filepath.Abs(*project)
+	if err != nil {
+		fmt.Fprintf(c.stderr, "watch: resolve project: %v\n", err)
+		return 1
+	}
+	store := filesystem.New(absoluteProject)
+	var run domain.Run
+	if strings.TrimSpace(*runID) == "" {
+		run, err = store.LoadCurrent()
+	} else {
+		run, err = store.Load(*runID)
+	}
+	if err != nil {
+		fmt.Fprintf(c.stderr, "watch: %v\n", err)
+		return 1
+	}
+	if !*follow {
+		snapshot, progressErr := store.Progress(run.ID)
+		if progressErr != nil {
+			fmt.Fprintf(c.stderr, "watch: %v\n", progressErr)
+			return 1
+		}
+		if *format == "jsonl" {
+			renderJSONLine(c.stdout, map[string]any{"kind": "snapshot", "snapshot": snapshot})
+		} else {
+			renderPlainSnapshot(c.stdout, snapshot)
+		}
+		return 0
+	}
+	stop := make(chan struct{})
+	c.runObserver(ctx, store, run.ID, *format, *notify, stop, true, true)
 	return 0
 }
 
@@ -468,5 +579,5 @@ func (c *CLI) writeJSON(value any) int {
 
 func (c *CLI) printUsage() {
 	fmt.Fprintln(c.stderr, "Usage: rct <command> [options]")
-	fmt.Fprintln(c.stderr, "Commands: start, plan, approve, implement, doctor, status, version")
+	fmt.Fprintln(c.stderr, "Commands: start, plan, approve, implement, doctor, status, watch, version")
 }

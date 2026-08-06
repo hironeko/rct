@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	agentassets "github.com/hironeko/rct/agent-assets"
@@ -739,30 +740,87 @@ func (s *Service) verifyMilestone(
 		if err := domain.ValidateCommandSpec(command); err != nil {
 			return record, nil, err
 		}
+		stdoutRelative := fmt.Sprintf("verification/%s/attempt-%03d-command-%02d.stdout.log", milestone.ID, run.VerificationAttempts, index+1)
+		stderrRelative := fmt.Sprintf("verification/%s/attempt-%03d-command-%02d.stderr.log", milestone.ID, run.VerificationAttempts, index+1)
+		stdoutLog, stdoutPath, err := store.OpenRunLog(run.ID, stdoutRelative)
+		if err != nil {
+			return record, nil, err
+		}
+		stderrLog, stderrPath, err := store.OpenRunLog(run.ID, stderrRelative)
+		if err != nil {
+			_ = stdoutLog.Close()
+			return record, nil, err
+		}
+		phase := "implementation"
+		if milestone.ID == "FINAL" {
+			phase = "final_verification"
+		}
+		now := s.deps.Now().UTC()
+		activity := domain.CurrentActivity{
+			RunID: run.ID, Status: domain.ActivityRunning, Phase: phase, Action: "verifying",
+			Role: "verifier", Backend: run.Backend,
+			JobID: fmt.Sprintf("verify-%s-command-%02d", strings.ToLower(milestone.ID), index+1),
+			Round: run.VerificationAttempts, MaxRounds: run.MaxReviewRounds,
+			ArtifactKind: "verification", StartedAt: now, LastHeartbeatAt: now,
+		}
+		if _, err := store.WriteActivity(activity); err != nil {
+			_ = stdoutLog.Close()
+			_ = stderrLog.Close()
+			return record, nil, err
+		}
+		_, _ = store.AppendProgressEvent(run.ID, progressEventForJob(run, activity, "VerificationStarted", now))
+		var activityMu sync.Mutex
+		var activityErr error
+		updateActivity := func(at time.Time) {
+			activityMu.Lock()
+			defer activityMu.Unlock()
+			if activityErr != nil {
+				return
+			}
+			activity.LastHeartbeatAt = at.UTC()
+			if _, err := store.WriteActivity(activity); err != nil {
+				activityErr = err
+			}
+		}
 		commandContext, cancel := context.WithTimeout(ctx, s.jobTimeout)
 		result, runErr := s.runner.Run(commandContext, rctruntime.ProcessRequest{
-			Executable: command.Executable,
-			Args:       append([]string(nil), command.Args...),
-			Directory:  run.Project,
-			Env:        verificationEnvironment(s.deps.Getenv),
+			Executable:  command.Executable,
+			Args:        append([]string(nil), command.Args...),
+			Directory:   run.Project,
+			Env:         verificationEnvironment(s.deps.Getenv),
+			Stdout:      stdoutLog,
+			Stderr:      stderrLog,
+			OnHeartbeat: updateActivity,
+			OnOutput: func(_ string, at time.Time) {
+				updateActivity(at)
+			},
 		})
 		cancel()
-		stdoutPath, err := store.WriteRunFile(
-			run.ID,
-			fmt.Sprintf("verification/%s/attempt-%03d-command-%02d.stdout.log", milestone.ID, run.VerificationAttempts, index+1),
-			result.Stdout,
-		)
-		if err != nil {
-			return record, nil, err
+		if info, statErr := stdoutLog.Stat(); statErr == nil && info.Size() == 0 && len(result.Stdout) > 0 {
+			_, _ = stdoutLog.Write(result.Stdout)
 		}
-		stderrPath, err := store.WriteRunFile(
-			run.ID,
-			fmt.Sprintf("verification/%s/attempt-%03d-command-%02d.stderr.log", milestone.ID, run.VerificationAttempts, index+1),
-			result.Stderr,
-		)
-		if err != nil {
-			return record, nil, err
+		if info, statErr := stderrLog.Stat(); statErr == nil && info.Size() == 0 && len(result.Stderr) > 0 {
+			_, _ = stderrLog.Write(result.Stderr)
 		}
+		if closeErr := stdoutLog.Close(); closeErr != nil && runErr == nil {
+			runErr = closeErr
+		}
+		if closeErr := stderrLog.Close(); closeErr != nil && runErr == nil {
+			runErr = closeErr
+		}
+		activityMu.Lock()
+		if activityErr != nil && runErr == nil {
+			runErr = activityErr
+		}
+		activityMu.Unlock()
+		activity.Status = domain.ActivityCompleted
+		if runErr != nil {
+			activity.Status = domain.ActivityFailed
+			activity.Error = &domain.SafeProgressError{Code: "VERIFICATION_FAILED", Summary: "A verification command did not complete successfully", Retryable: true, NextAction: "Inspect the local verification logs"}
+		}
+		activity.LastHeartbeatAt = s.deps.Now().UTC()
+		_, _ = store.WriteActivity(activity)
+		_, _ = store.AppendProgressEvent(run.ID, progressEventForJob(run, activity, "VerificationCompleted", activity.LastHeartbeatAt))
 		commandResult := VerificationCommandResult{
 			Executable: command.Executable,
 			Args:       append([]string(nil), command.Args...),

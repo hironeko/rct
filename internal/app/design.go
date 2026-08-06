@@ -305,7 +305,13 @@ func (s *Service) executeAgentJob(
 	completedAt := s.deps.Now().UTC()
 	if jobErr != nil {
 		activity.Status = domain.ActivityFailed
-		activity.Error = &domain.SafeProgressError{Code: "PROVIDER_JOB_FAILED", Summary: "Provider job ended before a valid result was produced", Retryable: true, NextAction: "Inspect the local job directory, then run rct status"}
+		code := "PROVIDER_JOB_FAILED"
+		summary := "Provider job ended before a valid result was produced"
+		if strings.Contains(jobErr.Error(), "LOG_SINK_BACKPRESSURE") || strings.Contains(jobErr.Error(), "LOG_SINK_WRITE_FAILED") {
+			code = "LOG_SINK_BACKPRESSURE"
+			summary = "Provider job stopped because its diagnostic log could not be persisted safely"
+		}
+		activity.Error = &domain.SafeProgressError{Code: code, Summary: summary, Retryable: true, NextAction: "Inspect the local job directory, then run rct status"}
 		_, _ = store.WriteActivity(activity)
 		_, _ = store.AppendProgressEvent(runID, progressEventForJob(run, activity, "JobFailed", completedAt))
 		return result, jobErr
@@ -375,7 +381,43 @@ func (s *Service) transition(
 	run.State = state
 	run.UpdatedAt = s.deps.Now().UTC()
 	run.Revision++
-	return store.Update(*run, previous, event)
+	if err := store.Update(*run, previous, event); err != nil {
+		return err
+	}
+	s.syncAttentionActivity(store, *run)
+	return nil
+}
+
+func (s *Service) syncAttentionActivity(store *filesystem.Store, run domain.Run) {
+	status := domain.ActivityStatus("")
+	action := ""
+	switch run.State {
+	case domain.StateAwaitingApproval:
+		status, action = domain.ActivityWaiting, "awaiting_approval"
+	case domain.StateWaitingForHuman, domain.StateBlocked:
+		status, action = domain.ActivityWaiting, "waiting_for_human"
+	case domain.StateCompleted:
+		status, action = domain.ActivityCompleted, "completed"
+	case domain.StateFailed:
+		status, action = domain.ActivityFailed, "failed"
+	default:
+		return
+	}
+	activity, err := store.LoadActivity(run.ID)
+	if err != nil {
+		activity = domain.CurrentActivity{RunID: run.ID, Backend: run.Backend, StartedAt: run.UpdatedAt}
+	}
+	activity.Status = status
+	activity.Action = action
+	activity.WaitingReason = run.WaitingReason
+	activity.LastHeartbeatAt = run.UpdatedAt
+	if run.State == domain.StateAwaitingApproval {
+		activity.Phase = "implementation_approval"
+	}
+	if run.State == domain.StateFailed && activity.Error == nil {
+		activity.Error = &domain.SafeProgressError{Code: "RUN_FAILED", Summary: "The run stopped before completion", Retryable: true, NextAction: "Run rct status and inspect the local job directory"}
+	}
+	_, _ = store.WriteActivity(activity)
 }
 
 func (s *Service) failRun(

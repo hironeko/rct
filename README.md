@@ -132,6 +132,28 @@ rct implement \
   --max-verification-attempts 3
 ```
 
+Long-running commands show a live phase gauge and the current role, provider, action, review-round budget,
+job ID, and liveness in an interactive terminal. Progress is written to stderr, so `--json` continues to
+produce one machine-readable result on stdout. The display and local notification behavior can be selected
+explicitly:
+
+```bash
+rct plan --project /path/to/project --progress plain --notify bell
+rct implement --project /path/to/project --progress tty --notify desktop
+```
+
+Join an existing run from another terminal, or inspect a single shared progress snapshot:
+
+```bash
+rct watch --project /path/to/project --follow
+rct status --project /path/to/project
+rct status --project /path/to/project --run run_... --json
+```
+
+`--progress` accepts `auto`, `tty`, `plain`, `jsonl`, or `none`. `--notify` accepts `auto`, `desktop`, `bell`,
+or `none`. Automatic desktop notifications use the macOS system notifier or `notify-send` on Linux and fall
+back to a terminal bell when appropriate.
+
 Implementation starts only from a clean Git worktree. Each milestone is implemented, verified with the
 approved executable-and-argument arrays, independently code-reviewed, and remediated when required. After all
 milestones pass, rct reruns the complete verification set and performs a final independent review of the
@@ -162,6 +184,7 @@ rct approve
 rct implement
 rct doctor
 rct status
+rct watch
 rct version
 ```
 
@@ -193,8 +216,13 @@ Run data is stored under the target project:
 
 ```text
 .rct/runs/<run-id>/
+├── state.json
+├── activity.json
+├── events.jsonl
 ├── artifacts/
-├── jobs/
+├── jobs/<job-id>/
+│   ├── stdout.log
+│   └── stderr.log
 ├── reviews/
 ├── verification/
 └── approvals/
@@ -213,6 +241,7 @@ The current product and architecture documents are maintained in Japanese:
 - [Local browser control plane design](docs/design/local-control-plane.md)
 - [Local browser control plane implementation plan](docs/implementation-plan-local-control-plane.md)
 - [Git bootstrap and preflight recovery design](docs/design/git-bootstrap-and-preflight-recovery.md)
+- [Live progress and run observability design](docs/design/live-progress-and-run-observability.md)
 - [Shared agent instructions](AGENTS.md)
 - [Claude Code instructions](CLAUDE.md)
 - [Shared agent instructions (Japanese)](docs/ja/AGENTS.md)

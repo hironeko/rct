@@ -101,12 +101,16 @@ type ProgressSnapshot struct {
 func ProjectProgress(run Run, activity *CurrentActivity, lastEventSeq uint64) ProgressSnapshot {
 	phaseIDs := macroPhaseIDs(run.Mode)
 	completed := completedMacroPhases(run)
+	currentPhase := phaseForState(run.State)
+	if currentPhase == "" && activity != nil {
+		currentPhase = activity.Phase
+	}
 	phases := make([]PhaseProgress, 0, len(phaseIDs))
 	for _, id := range phaseIDs {
 		status := "not_started"
 		if completed[id] {
 			status = "completed"
-		} else if phaseForState(run.State) == id {
+		} else if currentPhase == id {
 			status = "running"
 			if run.State == StateAwaitingApproval || run.State == StateWaitingForHuman || run.State == StateBlocked {
 				status = "waiting"
@@ -176,7 +180,7 @@ func completedMacroPhases(run Run) map[string]bool {
 	if run.BaseCommit != "" {
 		result["implementation_preflight"] = true
 	}
-	if run.Mode == ModeSupervised && run.Approval != nil && run.Approval.SubjectSHA256 == run.ApprovalTargetHash {
+	if run.Mode == ModeSupervised && run.BaseCommit != "" && run.Approval != nil && run.Approval.SubjectSHA256 == run.ApprovalTargetHash {
 		result["implementation_approval"] = true
 	}
 	if state == StateFinalVerification || state == StateFinalReview || state == StateCompleted {
@@ -193,7 +197,7 @@ func completedMacroPhases(run Run) map[string]bool {
 
 func phaseForState(state WorkflowState) string {
 	switch state {
-	case StateIntake, StateRequirementsDraft, StateRequirementsReview, StateRequirementsApproved:
+	case StateRequirementsDraft, StateRequirementsReview, StateRequirementsApproved:
 		return "requirements"
 	case StateArchitectureDraft, StateArchitectureReview, StateArchitectureApproved:
 		return "architecture"

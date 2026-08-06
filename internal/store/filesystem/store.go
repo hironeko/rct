@@ -46,13 +46,15 @@ func (s *Store) Create(run domain.Run, request string) error {
 	state = append(state, '\n')
 
 	event := map[string]any{
-		"schema_version": domain.ProgressSchemaVersion,
-		"seq":            1,
-		"timestamp":      run.CreatedAt,
-		"run_id":         run.ID,
-		"type":           "RunStarted",
-		"state_before":   nil,
-		"state_after":    run.State,
+		"seq":          1,
+		"timestamp":    run.CreatedAt,
+		"run_id":       run.ID,
+		"type":         "RunStarted",
+		"state_before": nil,
+		"state_after":  run.State,
+	}
+	if run.EventProtocolVersion == domain.ProgressSchemaVersion {
+		event["schema_version"] = domain.ProgressSchemaVersion
 	}
 	eventData, err := json.Marshal(event)
 	if err != nil {
@@ -133,6 +135,32 @@ func (s *Store) WriteRunFile(runID, relativePath string, data []byte) (string, e
 		return "", fmt.Errorf("write run file %q: %w", relativePath, err)
 	}
 	return filepath.ToSlash(filepath.Join(".rct", "runs", runID, clean)), nil
+}
+
+func (s *Store) OpenRunLog(runID, relativePath string) (*os.File, string, error) {
+	clean, err := cleanRunRelativePath(relativePath)
+	if err != nil {
+		return nil, "", err
+	}
+	path := filepath.Join(s.runDir(runID), clean)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, "", fmt.Errorf("create log directory: %w", err)
+	}
+	fd, err := syscall.Open(path, syscall.O_CREAT|syscall.O_WRONLY|syscall.O_TRUNC|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, "", fmt.Errorf("open run log %q: %w", relativePath, err)
+	}
+	file := os.NewFile(uintptr(fd), path)
+	if file == nil {
+		_ = syscall.Close(fd)
+		return nil, "", errors.New("create run log file handle")
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return nil, "", err
+	}
+	logical := filepath.ToSlash(filepath.Join(".rct", "runs", runID, clean))
+	return file, logical, nil
 }
 
 func cleanRunRelativePath(relativePath string) (string, error) {
@@ -307,6 +335,9 @@ func (s *Store) appendEventLocked(run domain.Run, event domain.ProgressEvent) er
 		legacy := map[string]any{
 			"timestamp": event.Timestamp, "run_id": event.RunID, "type": event.Type,
 			"state_before": event.StateBefore, "state_after": event.StateAfter,
+			"phase": event.Phase, "role": event.Role, "provider": event.Provider,
+			"backend": event.Backend, "job_id": event.JobID, "round": event.Round,
+			"artifact_kind": event.ArtifactKind, "version": event.Version, "summary": event.Summary,
 		}
 		for key, value := range event.Data {
 			legacy[key] = value
