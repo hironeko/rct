@@ -1,8 +1,8 @@
 # Local Browser Control Plane 実装計画
 
-- 文書版: 0.4.1-draft
+- 文書版: 0.4.2-draft
 - 作成日: 2026-08-02
-- 対応設計: `docs/design/local-control-plane.md` 0.4.1-draft、`docs/design/live-progress-and-run-observability.md` 0.1.1-draft
+- 対応設計: `docs/design/local-control-plane.md` 0.4.2-draft、`docs/design/live-progress-and-run-observability.md` 0.2.0-draft
 - 状態: 計画完了（実装未着手）
 
 ## 1. 実装原則
@@ -345,6 +345,7 @@ Acceptanceがすべて通過した時点で完了とする。
 - 共通Progress Query ServiceとCurrent Activity DTO
 - Sequence付きSSE ReplayとPolling Fallback
 - Current Activity Card、Phase Timeline、Recent Events、Next Action
+- Macro Phase GaugeとPlan Binding済みMilestone Gauge
 - Previous VerdictとCandidate Versionの分離表示
 - Keyboard、Screen Reader、Reduced Motion、Responsive Layout
 - Browser disconnect behavior
@@ -379,6 +380,7 @@ internal/controlplane/ui/
 - `Last-Event-ID`再接続でEventを重複または欠落させない
 - SSE不能時のPollingでも同じSnapshotとTerminal Stateへ収束する
 - Human Approval待ちを無限Spinnerでなく具体的なNext Actionとして表示する
+- Gaugeが完了済みGateだけを数え、Review Roundや実行中JobをPercentage化しない
 - Raw Log、Prompt、Credential、絶対PathをBrowser DTOとDOMへ出さない
 
 #### Verification
@@ -471,7 +473,7 @@ Reviewer verdictが`approved`かつGate Evaluatorが対象Hashと必須検証を
 | L2 | AC-035, AC-037, AC-038, AC-053 |
 | L3 | AC-039, AC-040, AC-043 |
 | L4 | AC-035, AC-037, AC-040, AC-044〜AC-048 |
-| L5 | AC-036, AC-038, AC-041, AC-042, AC-053, AC-073〜084 |
+| L5 | AC-036, AC-038, AC-041, AC-042, AC-053, AC-073〜086 |
 | L6 | AC-040, AC-043, AC-046, AC-047 |
 
 - File System safetyをUIより先に実装する順序である

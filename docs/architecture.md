@@ -1,8 +1,8 @@
 # rct アーキテクチャ設計書
 
-- 文書版: 0.10.1-draft
+- 文書版: 0.10.2-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.11.1-draft
+- 対応要件: `requirements.md` 0.11.2-draft
 - Draft拡張注記: Document Artifact移行方針、Approval Gate責務分離、Live Progress、rct名称移行を含む。
 - 実装言語: Go
 - 対象OS: macOS / Linux
@@ -92,6 +92,7 @@ flowchart TB
         VERIFYPORT["Verification Runner"]
         STOREPORT["State / Artifact Store"]
         EVENTPORT["Event / Activity Store"]
+        NOTIFYPORT["Local Notification"]
         CLOCKPORT["Clock / ID Generator"]
     end
 
@@ -103,6 +104,8 @@ flowchart TB
         DIRECT["Direct Backend"]
         GIT["Git Adapter"]
         FS["Filesystem Store"]
+        DESKTOP["macOS / Linux Desktop"]
+        BELL["Terminal Bell"]
     end
 
     CLI --> ORCH
@@ -126,6 +129,7 @@ flowchart TB
     ORCH --> VERIFYPORT
     ORCH --> STOREPORT
     PROGRESS --> EVENTPORT
+    PROGRESS --> NOTIFYPORT
     AGENTPORT --> CODEX
     AGENTPORT --> CLAUDE
     RUNTIMEPORT --> HERDR
@@ -134,6 +138,8 @@ flowchart TB
     VCSPORT --> GIT
     STOREPORT --> FS
     EVENTPORT --> FS
+    NOTIFYPORT --> DESKTOP
+    NOTIFYPORT --> BELL
 ```
 
 ## 4. コンポーネント責務
@@ -238,9 +244,14 @@ Gate Evaluatorは決定的ロジックだけを持つ。設計品質やコード
 - Direct、Herdr、tmuxのBackend固有状態を共通Activityへ正規化する
 - CLI、`status`、`watch`、Browserへ同じSnapshotとEvent Sequenceを提供する
 - Controller Heartbeatとstale観測を管理する
+- Run Modeから固定Macro Phase Gauge、承認済みPlanからMilestone Gaugeを決定的に投影する
+- Human Attention EventをNotification Portへ渡す
 
 Progress ProjectorはGate Evaluatorではない。`activity.json`、Heartbeat、Terminal表示、Backendの
 `idle`/`working`、Providerの自然言語を承認、Job完了、Artifact確定の根拠にしてはならない。
+
+Gaugeは既存Gate結果の表示であり、Gauge値からStateを逆算しない。Notification AdapterもRead-only Observerとして
+扱い、通知成功・失敗をWorkflow EventへFeedbackしない。
 
 ## 5. ドメインモデル
 
@@ -1248,11 +1259,18 @@ Review round: 2/3
 Previous review verdict: changes_requested (3 required changes)
 Started: 2026-08-02T15:40:50Z (elapsed 21s)
 Last activity: 2026-08-02T15:41:00Z (live)
+Overall: [######--------] 3/7 phases complete
+Review budget: round 2/3
 ```
 
 `status`はCurrent Snapshotを一度表示し、`watch`は同じSnapshotを表示後にSequence順のEventを追跡する。
 長時間Command自身も同じRendererを使用し、TTYでは再描画、非TTYでは追記行、AutomationではJSONLを選べる。
 Progressはstderr、最終Resultはstdoutへ分離し、`--json`のstdoutを壊さない。
+
+長時間Commandは`--notify auto|desktop|bell|none`を受け付ける。NotificationはHuman Action要求、Terminal
+Success/Failure、Retry上限、staleなどAttention Eventだけを対象とし、通常ActivityやHeartbeatでは送らない。
+macOS標準Notification、Linuxの利用可能なDesktop Notification、Terminal BellをAdapterとしてProbeし、追加Packageを
+必須にしない。Notification AdapterはShell文字列を評価せず、安全な固定Templateだけを使用する。
 
 Browser Control Planeは同じQuery ServiceからSnapshotを取得し、SSEで`Last-Event-ID`以降をReplayする。
 Durable Event LogはRun存続中にPruneせず、Bounded In-memory SSE Backlog外はDurable LogからReplayする。
@@ -1652,14 +1670,18 @@ Spike結果によりProvider AdapterとRuntime Backendの詳細だけを調整�
   `stale`は自動FailureでなくRecovery Managerによる再検査要求である
 - Transport: Terminalはstderr、AutomationはJSONL、BrowserはSequence付きSSEとPolling Fallbackを用いる。
   Transport切断や遅いConsumerをWorkflow Failureへ伝播させない
+- Gauge: Run Modeから固定されたMacro PhaseのGate通過数だけを全体Gaugeとし、承認済みPlanのMilestone Gaugeと
+  Review Budgetを分離する。Agent内部PercentageやETAを推測しない
+- Notification: Human Attention EventだけをLocal Notification Portへ送り、送信失敗をWorkflowへFeedbackしない。
+  Prompt、Raw Error、Absolute Path、Credentialを通知Payloadへ含めない
 - Backend境界: Direct、Herdr、tmuxの表示はrctのJob制御点から共通Eventへ正規化し、未Submit Sessionの
   `idle`や画面文字列をCurrent Runへ関連付けない
 - Security: Progress DTOへRaw Log、Prompt、Environment、Credential、任意File本文を含めず、Raw Job Logは
   権限制限されたLocal診断情報として分離する
 - 理由: 長時間のAI Jobを利用者が安心して観測でき、途中参加・再接続・Crash診断を可能にしつつ、表示上の
   推測や古いReview結果がGate判定へ混入することを防ぐため
-- 影響: Progress Projector、Activity Store、Streaming Process Runner、`rct watch`、共通Renderer、SSE Replay、
-  Browser Run Detail、Legacy Event互換層が必要になる。詳細は
+- 影響: Progress Projector、Activity Store、Streaming Process Runner、`rct watch`、共通Renderer、Gauge、
+  Local Notification Adapter、SSE Replay、Browser Run Detail、Legacy Event互換層が必要になる。詳細は
   `docs/design/live-progress-and-run-observability.md`へ記録する
 
 ## 26. 将来拡張

@@ -1,6 +1,6 @@
 # rct 要件定義書
 
-- 文書版: 0.11.1-draft
+- 文書版: 0.11.2-draft
 - ステータス: Draft（rct Core Loop実装済み、拡張機能は設計段階）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
@@ -1463,6 +1463,8 @@ ReviewChangesRequested
 ReviewApproved
 VerificationStarted
 VerificationCompleted
+ActivityStale
+ActivityRecovered
 RunWaiting
 RunCompleted
 ```
@@ -1624,6 +1626,48 @@ CLI向け参照、再試行または確認Actionを表示すること。Process 
 Progress Model、CLI Renderer、`watch`、Streaming Log、SSE Replay、Browser TimelineはFake ClockとFake Providerで
 決定的にTestできること。通常Testで実Providerを起動せず、Direct/Herdr/tmuxのContract Fixtureが同じPublic
 Progress Sequenceへ正規化されることを検証すること。
+
+#### FR-271
+
+CLIとBrowserは、完了を客観的に判定できるWorkflow Macro PhaseについてSegmented Progress Gaugeを表示できること。
+Gaugeの分子はGateを通過して完了したPhase数、分母はRun Modeから開始時に確定するMacro Phase数とし、Revision、
+Retry、Heartbeatによって減少または増加させてはならない。実行中Phaseは分子へ含めず、Textで`3 of 7 phases complete`
+のように併記すること。Agent Job内部の進み具合、未知の残り時間、Review Round消費率を完了Percentageとして
+表示してはならない。
+
+#### FR-272
+
+承認済みPlanからMilestone集合が確定した後は、Macro Phase Gaugeとは別にMilestone Gaugeを表示できること。
+分母はHuman Implementation ApprovalへBindingされたPlanのMilestone数、分子はVerificationとCode Reviewを通過した
+Milestone数とする。Plan改版により分母が変わる場合は旧Gaugeを継続せず、再承認後に新しいPlan Bindingとして
+明示的に初期化すること。Reviewは`round 2/3`のBudget表示とし、`67% complete`へ変換してはならない。
+
+#### FR-273
+
+長時間CLI Commandは、少なくとも次のAttention Eventについて任意のLocal Notificationを送れること。
+
+```text
+HumanActionRequired
+RunCompleted
+RunFailed
+RetryLimitReached
+ActivityStale
+```
+
+少なくとも`--notify auto|desktop|bell|none`を提供すること。`auto`は利用可能なLocal Desktop Notificationを
+選択し、利用不能ならTerminal BellへFallbackできること。macOSでは標準搭載機能、Linuxでは利用可能な
+Desktop Notification CommandをProbeし、追加Packageをrctの必須依存にしてはならない。通知失敗をWorkflow失敗、
+Gate拒否、Job再実行の理由にしてはならない。
+Flag未指定時はInteractive TTYかつCIでない長時間Writer Commandで`auto`、非TTY、CI、`status`、`watch`では
+`none`をDefaultとすること。`watch`では利用者が`--notify`を明示した場合だけLive Attention Eventを通知すること。
+
+#### FR-274
+
+NotificationはHeartbeatや通常のJob出力ごとに送らず、同一Process内でRun ID、Event Sequence、Channelが同じ通知を
+重複送信しないこと。`rct watch`は起動時にReplayした過去EventをDefaultで通知せず、接続後に新しく観測した
+Attention Eventだけを通知すること。通知Title/BodyへPrompt、Raw Error、Absolute Path、Credential、Artifact本文を
+含めず、安全なEvent名、Short Run ID、次のActionだけを使用すること。Desktop Notificationが利用不能でも
+一度だけ安全な警告を表示して処理を継続すること。
 
 ## 10. 非機能要件
 
@@ -2291,6 +2335,30 @@ Progress Event、`status --json`のPublic Field、SSE、Browser DOMへ秘密情�
 Jobが失敗すると、CLIとBrowserはProvider、Job ID、Phase、経過時間、Error Code、安全なSummary、次の確認または
 再試行Actionを表示する。Exit Codeだけの表示で終わらず、失敗表示そのものがRunの再実行やState変更を行わない。
 
+### AC-085
+
+Requirements、Architecture、Planが承認済みでImplementation Approval待ちのRunは、Macro Phase Gaugeを
+`3 of 7 phases complete`のように表示する。RequirementsやPlanのRevision Roundが増えてもGaugeの分母は変化せず、
+実行中Phaseを完了扱いせず、表示値が後退しない。TTY、Plain Text、Browserで分子と分母が一致する。
+
+### AC-086
+
+5 Milestoneを持つ承認済みPlanで2 MilestoneがVerificationとCode Reviewを通過すると、Milestone Gaugeを`2/5`と
+表示する。Review Round 2/3は別のBudget表示となり、どの画面にも`67% complete`またはJob内部Percentageを表示しない。
+Plan Bindingが変わる場合はHuman再承認まで旧Milestone GaugeをCurrent Planの進捗として表示しない。
+
+### AC-087
+
+Fake NotifierでHuman Approval要求、Run完了、Run失敗、Retry上限、staleを発生させると、設定対象だけが一度通知される。
+Heartbeat、JobOutputObserved、Replay済みEventでは通知されない。Notifierが利用不能または送信失敗でもWorkflow State、
+Artifact、Exit Resultは通知成功時と一致し、同じJobを再実行しない。
+
+### AC-088
+
+Prompt、Credential、Absolute Path、Raw stderrを含む失敗RunでもNotification Sinkへ渡るTitle/Bodyは安全なEvent名、
+Short Run ID、次のActionだけである。macOS Desktop、Linux Desktop利用可能時、Bell Fallback、`--notify none`を
+Contract Testし、追加Notification PackageがないLinuxでもrct Command自体は正常に動作する。
+
 ## 16. 初期リスク
 
 | リスク | 影響 | 対応 |
@@ -2310,6 +2378,8 @@ Jobが失敗すると、CLIとBrowserはProvider、Job ID、Phase、経過時間
 | 二重送信で複数Runが作成される | 重複費用と競合 | Idempotency Key、Intake State Revision、Run一意制約 |
 | Frontend FrameworkがGo CoreとWorkflowを重複実装する | 状態不整合と保守コスト増大 | React Router Data Modeに限定し、Go APIを唯一の正式状態変更境界とする |
 | Frontend Build AssetとSourceが乖離する | 古いUIまたは脆弱な依存を配布する | Lockfile、Build Manifest、再現Build、Source/Asset対応Gate |
+| 推測Progress Gaugeが利用者を誤認させる | 停止・完了判断の誤り | 完了済みGateだけを数え、AI内部PercentageとETAを表示しない |
+| 通知過多または通知への秘密情報混入 | 集中阻害・情報漏洩 | Attention Event限定、固定Template、Replay抑止、`--notify none` |
 
 ## 17. 未決事項
 

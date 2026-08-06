@@ -1,9 +1,9 @@
 # Live Progress and Run Observability 詳細設計
 
-- 文書版: 0.1.1-draft
+- 文書版: 0.2.0-draft
 - 作成日: 2026-08-03
-- ステータス: Claude Review待ち
-- 対応要件: `docs/requirements.md` 0.11.1-draft（FR-250〜270、AC-073〜084）
+- ステータス: Claude追加Review待ち（0.1.1はApproved）
+- 対応要件: `docs/requirements.md` 0.11.2-draft（FR-250〜274、AC-073〜088）
 - 対応ADR: `docs/architecture.md` ADR-012
 
 ## 1. 目的
@@ -24,6 +24,8 @@ Jobを把握できなかった。本設計はこの観測ギャップを解消�
 5. 根拠のないPercentage、ETA、成功推測を表示しない。
 6. Raw Logと安全なProgress Summaryを分離する。
 7. Observerの切断や遅延でProvider Jobを停止させない。
+8. Gaugeは完了済みGateだけを数え、Agent内部の未知Progressを推測しない。
+9. Notificationは補助的なAttention Signalであり、Workflowへ結果をFeedbackしない。
 
 ## 3. Scope
 
@@ -144,10 +146,13 @@ JobQueued, JobStarted, JobOutputObserved, JobCompleted, JobFailed, JobCancelled
 ArtifactProduced, ReviewChangesRequested, ReviewApproved
 VerificationStarted, VerificationCompleted
 HumanActionRequired, HumanActionReceived
+ActivityStale, ActivityRecovered
 ```
 
 Heartbeatは高頻度のSemantic Logへ永続化せず、Activity Revision更新およびLive Transport Eventとして扱う。
 `JobOutputObserved`も内容を含めず、最終出力観測時刻など必要最小限に抑制・集約する。
+`ActivityStale`はThresholdを初めて超えた状態遷移で一度だけSemantic Eventとして発行し、Workflow Stateは変えない。
+Heartbeat回復時は`ActivityRecovered`を一度発行するため、通知DeduplicateにEvent Sequenceを利用できる。
 
 ### 5.3 Phase projection
 
@@ -160,6 +165,35 @@ intake -> requirements -> architecture -> plan -> implementation_approval
 
 各Phase Statusは`not_started|running|changes_requested|approved|waiting|failed|completed`とする。Milestoneは
 子項目として展開できる。Phase順序は表示用であり、不正なState遷移を補正しない。
+
+### 5.4 Gauge projection
+
+全体GaugeはRun開始時にModeから固定されるMacro Phaseだけを単位にする。Supervised Implementation Runの例:
+
+```text
+requirements, architecture, plan, implementation_approval,
+implementation, final_verification, final_review
+```
+
+分子は対応Gateを通過したPhase数、分母は固定された7である。Current Phaseは分子へ含めない。RevisionやRetryで
+完了済みGateがStaleになった場合は、Gaugeを静かに後退させず`plan changed — re-approval required`のような
+Invalidation状態を表示し、新しいBindingが確定した時点で別Gauge Revisionとして初期化する。
+
+Implementation内は承認済みPlanへBindingされたMilestone数を別Gaugeで表示する。MilestoneはImplementation、
+Verification、Code Reviewを通過して初めて完了に数える。Review Roundは完了度ではなく有限Budgetなので、
+`round 2/3`と表示しPercentageへ変換しない。
+
+```go
+type Gauge struct {
+    Kind        string // macro_phases|milestones
+    Revision    uint64
+    Completed   int
+    Total       int
+    Label       string
+    Invalidated bool
+    Reason      string
+}
+```
 
 ## 6. Persistence
 
@@ -279,6 +313,8 @@ Implementation Plan ● Claude reviewing v2 · round 2/3 · 21s
 Human approval      ○ waiting for Plan
 Implementation      ○ not started
 
+Overall              [######--------] 3/7 phases complete
+
 Last activity: 1s ago · direct · plan-r02-reviewer
 ```
 
@@ -292,10 +328,14 @@ Flags:
 
 ```text
 --progress auto|tty|plain|jsonl|none
+--notify auto|desktop|bell|none
 ```
 
 Progressはstderr、最終Resultはstdoutへ出す。`--json`はstdoutに単一JSONを維持する。非TTY、`NO_COLOR`、
 `TERM=dumb`ではColorやCursor制御を必須にしない。
+
+TTY GaugeはTerminal幅に応じてSegmentまたはBar表示する。ASCII Fallbackでは`[######--------] 3/7`を使用する。
+非TTYはGauge値が変化したときだけ一行Eventとして出し、毎Heartbeatで同じGaugeを再出力しない。
 
 ### 9.2 Status
 
@@ -315,12 +355,52 @@ rct watch --project <path> [--run <id>] [--follow] [--format plain|jsonl]
 4. `--follow`はTerminal Stateまで待ち、Signal受信時はWatcherだけを終了する。
 5. WatcherはState、Current Pointer、Run Lockを変更しない。
 
+### 9.4 CLI notifications
+
+```text
+--notify auto|desktop|bell|none
+```
+
+`auto`はLocal Desktop AdapterをProbeし、利用不能ならTerminal BellへFallbackする。`desktop`を明示してAdapterが
+利用不能な場合もWorkflowは継続し、安全な警告を一度だけ表示する。MVP Adapter:
+
+Flag未指定時は、`start --execute`、`plan`、`implement`、`resume`のInteractive TTYかつ`CI`でない実行だけを
+`auto`とする。非TTY、CI、`status`、`watch`は`none`をDefaultとし、Watcher通知は利用者が明示的に
+`--notify auto|desktop|bell`を指定した場合だけ有効にする。明示指定は`--json`でも尊重するが、通知文字列は
+stderr/stdoutのResult Contractへ混入させない。
+
+| OS/terminal | Adapter | Dependency policy |
+|---|---|---|
+| macOS | system `osascript` notification | OS標準、固定Script Template |
+| Linux desktop | `notify-send` when available | Optional、未導入でも動作 |
+| Any terminal | BEL (`\a`) | Fallback |
+
+通知対象:
+
+```text
+HumanActionRequired  -> "rct: approval required" / "Review the pending approval"
+RunCompleted         -> "rct: run completed" / "The run finished successfully"
+RunFailed            -> "rct: run failed" / "Open rct status for the next action"
+RetryLimitReached    -> "rct: review required" / "The retry limit was reached"
+ActivityStale        -> "rct: activity stale" / "Check the current process or backend"
+```
+
+Prompt、Project Path、Artifact本文、Raw ErrorをOS Notificationへ渡さない。Short Run ID以外の利用者入力をTitleへ
+埋め込まない。`osascript`と`notify-send`はShell経由で文字列連結せず引数配列として起動し、AppleScript本文と
+通知Templateは固定する。
+
+NotifierはProcess内で`(run_id, event_sequence, channel)`をDeduplicateする。Command開始時のSnapshotやReplay Eventは
+Defaultで通知せず、Live観測後の新しいAttention Eventだけを対象にする。複数の明示的Watcherはそれぞれ独立Observer
+なので各Terminalで通知され得るが、同じWatcher Process内では重複しない。Notification結果はEvent LogへWorkflow
+Eventとして戻さず、Job再実行やExit Code変更を起こさない。
+
 ## 10. Browser Run Detail
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
 │ new-ios-game-app · run_...                     LIVE · direct    │
 │ PLAN_REVIEW · supervised                        last seen 1s ago │
+│ Overall progress              ██████░░░░░░ 3/7 phases complete │
 ├──────────────────────────────┬──────────────────────────────────┤
 │ Current activity             │ Phase timeline                   │
 │ Claude · Reviewer            │ ✓ Requirements (2 rounds)        │
@@ -352,6 +432,9 @@ DesktopではCurrent ActivityとTimelineを二Column、狭いViewportではActiv
 
 Colorだけを意味に使わず、Reduced MotionではPulseを無効化する。Live RegionはPhase変更、Failure、Human Actionだけを
 `polite`または必要時`assertive`に通知し、Heartbeatは読み上げない。
+
+GaugeはNative `<progress>`相当のSemanticsと`3 of 7 phases complete`のAccessible Nameを持たせる。Current Phaseを
+完了分へ含めず、Review RoundはGaugeにしない。Milestone GaugeはPlan Approval後だけ表示する。
 
 ## 11. Query API and live transport
 
@@ -444,6 +527,8 @@ Error Summaryは既知Error Codeから構築し、Raw stderrの先頭行を無�
 - StateとActivityのAuthority分離
 - Event Sequence、Legacy Reader、Projection再構築
 - TTY/plain/JSONL Rendererとstdout/stderr分離
+- Macro Phase/Milestone Gaugeの固定分母、Invalidation、ASCII Fallback
+- Notification Filter、Deduplicate、Safe PayloadをFake Sinkで検証
 - Heartbeat/staleをFake Clockで検証
 - Public DTO Redaction
 
@@ -454,11 +539,13 @@ Error Summaryは既知Error Codeから構築し、Raw stderrの先頭行を無�
 - 複数WatcherがWriterをBlockしない
 - SSE Replay、Deduplicate、Gap Resync、Polling Fallback
 - Direct/Herdr/tmux Fixtureが同じLogical Sequenceへ正規化される
+- macOS Desktop、Linux Optional Desktop、Bell Fallback、Notifier失敗をFake Processで検証
 
 ### UI
 
 - Plan Round 2 Review中にCurrent JobとPrevious Verdictが正しく分離される
 - Running、Revision、Waiting Approval、FailureのVisual Regression
+- Macro PhaseとMilestone GaugeのVisual/Accessible Regression
 - Keyboard、Screen Reader、200% Zoom、Reduced Motion、狭いViewport
 - Fake Credential、Absolute Path、Raw LogがDOMへ出ない
 
@@ -468,7 +555,7 @@ Error Summaryは既知Error Codeから構築し、Raw stderrの先頭行を無�
 
 1. P0: Event Contract、Activity Store、Legacy Reader、Projection Test
 2. P1: Streaming Process Runner、Heartbeat、安全なError
-3. P2: Long-running Command Renderer、`status`拡張、`watch`
+3. P2: Long-running Command Renderer、Gauge、Local Notification、`status`拡張、`watch`
 4. P3: Progress Query API、SSE Replay、Polling Fallback
 5. P4: React/TypeScript Run Detail、Accessibility、Visual Test
 
@@ -491,3 +578,5 @@ Claude Reviewでは特に次を確認する。
 6. Public Progress DTOから秘密情報とRaw Logを排除できているか。
 7. CLIとBrowserがCurrent Job、Previous Verdict、Candidate Versionを誤認させないか。
 8. Direct、Herdr、tmuxの所有関係と正規化境界が十分か。
+9. Gaugeが未知のAI進捗やReview Budgetを完了Percentageと誤認させないか。
+10. Notification Adapterが秘密情報、Shell Injection、重複通知、Workflowへの副作用を防げているか。
