@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"time"
 
 	"github.com/hironeko/rct/internal/domain"
 )
@@ -14,14 +15,16 @@ const (
 )
 
 type Job struct {
-	ID       string
-	Provider domain.Provider
-	Role     domain.Role
-	Project  string
-	JobDir   string
-	Prompt   []byte
-	Schema   []byte
-	Access   AccessMode
+	ID          string
+	Provider    domain.Provider
+	Role        domain.Role
+	Project     string
+	JobDir      string
+	Prompt      []byte
+	Schema      []byte
+	Access      AccessMode
+	OnHeartbeat func(time.Time)
+	OnOutput    func(string, time.Time)
 }
 
 type Result struct {

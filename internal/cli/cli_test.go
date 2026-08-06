@@ -15,6 +15,7 @@ import (
 	"github.com/hironeko/rct/internal/app"
 	"github.com/hironeko/rct/internal/domain"
 	"github.com/hironeko/rct/internal/providers"
+	"github.com/hironeko/rct/internal/store/filesystem"
 )
 
 type cliGateway struct {
@@ -159,9 +160,10 @@ func TestStartExecuteRunsDesignWorkflow(t *testing.T) {
 		ProviderAuth: func(context.Context, domain.Provider) error { return nil },
 	})
 	command := New(service, strings.NewReader(""), &stdout, &stderr)
+	project := t.TempDir()
 	exitCode := command.Run(context.Background(), []string{
 		"start",
-		"--project", t.TempDir(),
+		"--project", project,
 		"--backend", "direct",
 		"--mode", "design-only",
 		"--request", "Build rct",
@@ -173,5 +175,25 @@ func TestStartExecuteRunsDesignWorkflow(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "State: REQUIREMENTS_APPROVED") {
 		t.Fatalf("stdout = %q", stdout.String())
+	}
+	store := filesystem.New(project)
+	activity, err := store.LoadActivity(runID)
+	if err != nil {
+		t.Fatalf("LoadActivity() error: %v", err)
+	}
+	if activity.Status != domain.ActivityCompleted || activity.JobID != "requirements-r01-reviewer" {
+		t.Fatalf("activity = %#v", activity)
+	}
+	events, err := store.ReadEvents(runID, 0)
+	if err != nil {
+		t.Fatalf("ReadEvents() error: %v", err)
+	}
+	var started, completed bool
+	for _, event := range events {
+		started = started || event.Type == "JobStarted"
+		completed = completed || event.Type == "JobCompleted"
+	}
+	if !started || !completed {
+		t.Fatalf("job lifecycle events missing: %#v", events)
 	}
 }

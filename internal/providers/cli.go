@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/hironeko/rct/internal/domain"
 	rctruntime "github.com/hironeko/rct/internal/runtime"
@@ -35,6 +37,16 @@ func (g *CLIGateway) Execute(ctx context.Context, job Job) (Result, error) {
 	if err := os.MkdirAll(job.JobDir, 0o700); err != nil {
 		return Result{}, fmt.Errorf("create job directory: %w", err)
 	}
+	stdoutLog, err := openSecureLog(filepath.Join(job.JobDir, "stdout.log"))
+	if err != nil {
+		return Result{}, fmt.Errorf("open stdout log: %w", err)
+	}
+	defer stdoutLog.Close()
+	stderrLog, err := openSecureLog(filepath.Join(job.JobDir, "stderr.log"))
+	if err != nil {
+		return Result{}, fmt.Errorf("open stderr log: %w", err)
+	}
+	defer stderrLog.Close()
 
 	schemaPath := filepath.Join(job.JobDir, "output.schema.json")
 	promptPath := filepath.Join(job.JobDir, "prompt.md")
@@ -52,15 +64,19 @@ func (g *CLIGateway) Execute(ctx context.Context, job Job) (Result, error) {
 	)
 	switch job.Provider {
 	case domain.ProviderCodex:
-		result, output, execErr = g.executeCodex(ctx, job, schemaPath)
+		result, output, execErr = g.executeCodex(ctx, job, schemaPath, stdoutLog, stderrLog)
 	case domain.ProviderClaude:
-		result, output, execErr = g.executeClaude(ctx, job)
+		result, output, execErr = g.executeClaude(ctx, job, stdoutLog, stderrLog)
 	default:
 		return Result{}, fmt.Errorf("unsupported provider %q", job.Provider)
 	}
 
-	_ = os.WriteFile(filepath.Join(job.JobDir, "stdout.log"), result.Stdout, 0o600)
-	_ = os.WriteFile(filepath.Join(job.JobDir, "stderr.log"), result.Stderr, 0o600)
+	if info, statErr := stdoutLog.Stat(); statErr == nil && info.Size() == 0 && len(result.Stdout) > 0 {
+		_, _ = stdoutLog.Write(result.Stdout)
+	}
+	if info, statErr := stderrLog.Stat(); statErr == nil && info.Size() == 0 && len(result.Stderr) > 0 {
+		_, _ = stderrLog.Write(result.Stderr)
+	}
 	if execErr != nil {
 		return Result{Stdout: result.Stdout, Stderr: result.Stderr}, fmt.Errorf(
 			"%s job %s: %w; inspect %s",
@@ -106,6 +122,7 @@ func (g *CLIGateway) executeCodex(
 	ctx context.Context,
 	job Job,
 	schemaPath string,
+	stdoutLog, stderrLog io.Writer,
 ) (rctruntime.ProcessResult, []byte, error) {
 	outputPath := filepath.Join(job.JobDir, "codex-final.json")
 	sandbox := "read-only"
@@ -126,8 +143,12 @@ func (g *CLIGateway) executeCodex(
 			"--cd", job.Project,
 			"-",
 		},
-		Directory: job.Project,
-		Stdin:     job.Prompt,
+		Directory:   job.Project,
+		Stdin:       job.Prompt,
+		Stdout:      stdoutLog,
+		Stderr:      stderrLog,
+		OnHeartbeat: job.OnHeartbeat,
+		OnOutput:    job.OnOutput,
 	})
 	if err != nil {
 		return result, nil, err
@@ -142,6 +163,7 @@ func (g *CLIGateway) executeCodex(
 func (g *CLIGateway) executeClaude(
 	ctx context.Context,
 	job Job,
+	stdoutLog, stderrLog io.Writer,
 ) (rctruntime.ProcessResult, []byte, error) {
 	permissionMode := "dontAsk"
 	tools := "Read,Glob,Grep"
@@ -161,8 +183,12 @@ func (g *CLIGateway) executeClaude(
 			"--no-chrome",
 			"--no-session-persistence",
 		},
-		Directory: job.Project,
-		Stdin:     job.Prompt,
+		Directory:   job.Project,
+		Stdin:       job.Prompt,
+		Stdout:      stdoutLog,
+		Stderr:      stderrLog,
+		OnHeartbeat: job.OnHeartbeat,
+		OnOutput:    job.OnOutput,
 	})
 	if err != nil {
 		return result, nil, err
@@ -172,7 +198,14 @@ func (g *CLIGateway) executeClaude(
 		StructuredOutput json.RawMessage `json:"structured_output"`
 		Result           string          `json:"result"`
 	}
-	if err := json.Unmarshal(result.Stdout, &envelope); err != nil {
+	fullOutput, readErr := os.ReadFile(filepath.Join(job.JobDir, "stdout.log"))
+	if readErr != nil {
+		return result, nil, fmt.Errorf("read Claude output log: %w", readErr)
+	}
+	if len(fullOutput) == 0 {
+		fullOutput = result.Stdout
+	}
+	if err := json.Unmarshal(fullOutput, &envelope); err != nil {
 		return result, nil, fmt.Errorf("decode Claude result envelope: %w", err)
 	}
 	if len(envelope.StructuredOutput) > 0 && string(envelope.StructuredOutput) != "null" {
@@ -182,6 +215,23 @@ func (g *CLIGateway) executeClaude(
 		return result, []byte(envelope.Result), nil
 	}
 	return result, nil, errors.New("Claude result did not contain structured_output")
+}
+
+func openSecureLog(path string) (*os.File, error) {
+	fd, err := syscall.Open(path, syscall.O_CREAT|syscall.O_WRONLY|syscall.O_TRUNC|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	if file == nil {
+		_ = syscall.Close(fd)
+		return nil, errors.New("create log file handle")
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
 }
 
 func validateJob(job Job) error {

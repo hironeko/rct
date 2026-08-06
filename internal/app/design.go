@@ -8,7 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	agentassets "github.com/hironeko/rct/agent-assets"
 	"github.com/hironeko/rct/internal/domain"
@@ -237,7 +240,129 @@ func (s *Service) executeAgentJob(
 ) (providers.Result, error) {
 	jobContext, cancel := context.WithTimeout(ctx, s.jobTimeout)
 	defer cancel()
-	return s.agent.Execute(jobContext, job)
+
+	runID := filepath.Base(filepath.Dir(filepath.Dir(job.JobDir)))
+	store := filesystem.New(job.Project)
+	run, err := store.Load(runID)
+	if err != nil {
+		return providers.Result{}, fmt.Errorf("load run for job progress: %w", err)
+	}
+	phase, round := jobProgressIdentity(job.ID)
+	now := s.deps.Now().UTC()
+	activity := domain.CurrentActivity{
+		RunID: runID, Status: domain.ActivityQueued, Phase: phase, Action: jobAction(job.Role),
+		Role: string(job.Role), Provider: string(job.Provider), Backend: run.Backend, JobID: job.ID,
+		Round: round, MaxRounds: run.MaxReviewRounds, ArtifactKind: phase, CandidateVersion: round,
+		PreviousVerdict: string(run.LastVerdict), StartedAt: now, LastHeartbeatAt: now,
+	}
+	if _, err := store.WriteActivity(activity); err != nil {
+		return providers.Result{}, err
+	}
+	if _, err := store.AppendProgressEvent(runID, progressEventForJob(run, activity, "JobQueued", now)); err != nil {
+		return providers.Result{}, err
+	}
+	activity.Status = domain.ActivityRunning
+	if _, err := store.WriteActivity(activity); err != nil {
+		return providers.Result{}, err
+	}
+	if _, err := store.AppendProgressEvent(runID, progressEventForJob(run, activity, "JobStarted", now)); err != nil {
+		return providers.Result{}, err
+	}
+
+	var mu sync.Mutex
+	var callbackErr error
+	lastOutputPersist := time.Time{}
+	update := func(at time.Time, output bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if callbackErr != nil {
+			return
+		}
+		if output && !lastOutputPersist.IsZero() && at.Sub(lastOutputPersist) < time.Second {
+			return
+		}
+		activity.LastHeartbeatAt = at.UTC()
+		if _, writeErr := store.WriteActivity(activity); writeErr != nil {
+			callbackErr = fmt.Errorf("persist job activity: %w", writeErr)
+			cancel()
+			return
+		}
+		if output {
+			lastOutputPersist = at
+		}
+	}
+	job.OnHeartbeat = func(at time.Time) { update(at, false) }
+	job.OnOutput = func(_ string, at time.Time) { update(at, true) }
+	result, jobErr := s.agent.Execute(jobContext, job)
+
+	mu.Lock()
+	observabilityErr := callbackErr
+	activity.LastHeartbeatAt = s.deps.Now().UTC()
+	mu.Unlock()
+	if observabilityErr != nil && jobErr == nil {
+		jobErr = observabilityErr
+	}
+	completedAt := s.deps.Now().UTC()
+	if jobErr != nil {
+		activity.Status = domain.ActivityFailed
+		activity.Error = &domain.SafeProgressError{Code: "PROVIDER_JOB_FAILED", Summary: "Provider job ended before a valid result was produced", Retryable: true, NextAction: "Inspect the local job directory, then run rct status"}
+		_, _ = store.WriteActivity(activity)
+		_, _ = store.AppendProgressEvent(runID, progressEventForJob(run, activity, "JobFailed", completedAt))
+		return result, jobErr
+	}
+	activity.Status = domain.ActivityCompleted
+	activity.Error = nil
+	if _, err := store.WriteActivity(activity); err != nil {
+		return result, err
+	}
+	if _, err := store.AppendProgressEvent(runID, progressEventForJob(run, activity, "JobCompleted", completedAt)); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func jobProgressIdentity(jobID string) (string, int) {
+	phase := "implementation"
+	for _, candidate := range []string{"requirements", "architecture", "plan", "final"} {
+		if strings.HasPrefix(strings.ToLower(jobID), candidate+"-") {
+			phase = candidate
+			if candidate == "final" {
+				phase = "final_review"
+			}
+			break
+		}
+	}
+	round := 0
+	for _, part := range strings.Split(jobID, "-") {
+		if len(part) > 1 && part[0] == 'r' {
+			if value, err := strconv.Atoi(part[1:]); err == nil {
+				round = value
+				break
+			}
+		}
+	}
+	return phase, round
+}
+
+func jobAction(role domain.Role) string {
+	switch role {
+	case domain.RoleDesigner:
+		return "drafting"
+	case domain.RoleReviewer:
+		return "reviewing"
+	case domain.RoleImplementer:
+		return "implementing"
+	default:
+		return "running"
+	}
+}
+
+func progressEventForJob(run domain.Run, activity domain.CurrentActivity, kind string, at time.Time) domain.ProgressEvent {
+	return domain.ProgressEvent{
+		Timestamp: at, RunID: run.ID, Type: kind, StateAfter: string(run.State), Phase: activity.Phase,
+		Role: activity.Role, Provider: activity.Provider, Backend: activity.Backend, JobID: activity.JobID,
+		Round: activity.Round, ArtifactKind: activity.ArtifactKind, Version: activity.CandidateVersion,
+	}
 }
 
 func (s *Service) transition(
