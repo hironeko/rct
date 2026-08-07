@@ -148,24 +148,8 @@ func (s *Service) ExecutePlanning(
 	run.PlanSHA256 = sha256Hex(plan)
 	run.ApprovalTargetHash = run.PlanSHA256
 	switch run.Mode {
-	case domain.ModeSupervised:
-		if err := s.transition(
-			store,
-			&run,
-			domain.StateAwaitingApproval,
-			"ImplementationApprovalRequested",
-		); err != nil {
-			return run, err
-		}
-	case domain.ModeAutonomous:
-		if err := s.transition(
-			store,
-			&run,
-			domain.StateImplementationReady,
-			"ImplementationAuthorizedByMode",
-		); err != nil {
-			return run, err
-		}
+	case domain.ModeSupervised, domain.ModeAutonomous:
+		return s.ExecuteImplementationPreflight(ctx, run)
 	case domain.ModeDesignOnly:
 		if err := s.transition(
 			store,

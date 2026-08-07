@@ -4,7 +4,30 @@
 - 作成日: 2026-08-02
 - 対応要件: `docs/requirements.md` 0.11.3-draft FR-230〜FR-245
 - 対応ADR: `docs/architecture.md` ADR-011
-- 状態: Claude Review待ち
+- 状態: Claude Review承認済み、CLI Core Path実装済み
+
+## 0. 実装状況（2026-08-07）
+
+実装済み:
+
+- `IMPLEMENTATION_PREFLIGHT`の実Workflow State化
+- Managed Minimalおよび明示`--adopt-existing`による`rct init`
+- `rct start --init-git`統合
+- `/.rct/`除外、固定PathのStage、Hook/署名無効化、初回Baseline Commit、Receipt保存
+- Git未初期化、Unborn HEAD、Dirty Worktree、Baseline Drift、Writer競合の回復可能な停止
+- 同一Runを再利用する`rct resume`
+- Plan HashとBaseline CommitへBindingしたHuman Approval
+- Implementation Command全体を覆うProject Writer Lease
+- Preflight、待機理由、具体的な次操作のCLI/Browser共通Progress反映
+
+後続Increment:
+
+- 旧VersionでGit不足により`FAILED`となったRunの限定Migration（G6）
+- Browser IntakeからのGit Bootstrap Apply操作（G7。進捗表示とApproval UIは実装済み）
+- Bootstrap途中失敗の部分完了Receiptからの詳細な冪等Recovery
+
+この区分により、Git未初期化ProjectでPlan完了後に`rct implement`が即`FAILED`となる実機障害は
+CLI Core Pathで解消済みである。一方、上記後続Incrementを含むFR-230〜FR-245全体の完了を示すものではない。
 
 ## 1. 目的
 

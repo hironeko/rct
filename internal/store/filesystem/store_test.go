@@ -143,3 +143,26 @@ func TestLegacyEventReaderUsesPhysicalLineSequence(t *testing.T) {
 		t.Fatalf("Load traversal error = %v", err)
 	}
 }
+
+func TestProjectWriterLeaseIsExclusiveAndRecoverable(t *testing.T) {
+	t.Parallel()
+
+	store := New(t.TempDir())
+	first, err := store.AcquireProjectWriterLease()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AcquireProjectWriterLease(); !errors.Is(err, ErrProjectWriterBusy) {
+		t.Fatalf("second lease error = %v, want %v", err, ErrProjectWriterBusy)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	third, err := store.AcquireProjectWriterLease()
+	if err != nil {
+		t.Fatalf("lease after release: %v", err)
+	}
+	if err := third.Close(); err != nil {
+		t.Fatal(err)
+	}
+}

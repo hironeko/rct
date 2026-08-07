@@ -96,18 +96,18 @@ func (s *Service) ExecuteImplementation(
 	if err := validateImplementationSeparation(run); err != nil {
 		return run, err
 	}
+	store := filesystem.New(run.Project)
 	for _, role := range []domain.Role{domain.RoleImplementer, domain.RoleReviewer} {
 		binding := run.Roles[role]
 		if err := s.deps.ProviderAuth(ctx, binding.Provider); err != nil {
 			return s.failRun(
-				filesystem.New(run.Project),
+				store,
 				run,
 				fmt.Errorf("%s provider preflight failed: %w", role, err),
 			)
 		}
 	}
 
-	store := filesystem.New(run.Project)
 	planBytes, err := store.ReadArtifact(run.ID, run.PlanPath)
 	if err != nil {
 		return s.failRun(store, run, err)
@@ -116,7 +116,8 @@ func (s *Service) ExecuteImplementation(
 		return s.failRun(store, run, errors.New("implementation plan no longer matches authorized hash"))
 	}
 	if run.Mode == domain.ModeSupervised {
-		if run.Approval == nil || run.Approval.SubjectSHA256 != run.ApprovalTargetHash {
+		if run.Approval == nil || run.Approval.SubjectSHA256 != run.ApprovalTargetHash ||
+			run.Approval.BaselineCommit != run.BaseCommit {
 			return s.failRun(store, run, errors.New("valid human implementation approval is missing"))
 		}
 	}
@@ -124,14 +125,28 @@ func (s *Service) ExecuteImplementation(
 	if err != nil {
 		return s.failRun(store, run, err)
 	}
-	if err := s.requireCleanImplementationWorktree(ctx, run.Project); err != nil {
+	lease, err := store.AcquireProjectWriterLease()
+	if err != nil {
+		if errors.Is(err, filesystem.ErrProjectWriterBusy) {
+			return s.interruptPreflight(store, run, &recoverablePreflightError{
+				code: InterruptionProjectWriterBusy, summary: "another rct run is writing this project",
+				remediation: []string{"Wait for the active implementation to finish", "Run rct resume --project <path>"},
+			})
+		}
 		return s.failRun(store, run, err)
 	}
-	baseCommit, err := s.gitText(ctx, run.Project, "rev-parse", "HEAD")
+	defer lease.Close() //nolint:errcheck
+	preflight, err := s.inspectImplementationPreflight(ctx, run, true)
 	if err != nil {
-		return s.failRun(store, run, fmt.Errorf("read implementation base commit: %w", err))
+		var recoverable *recoverablePreflightError
+		if errors.As(err, &recoverable) {
+			return s.interruptPreflight(store, run, recoverable)
+		}
+		return s.failRun(store, run, err)
 	}
-	run.BaseCommit = strings.TrimSpace(baseCommit)
+	run.RepositoryRoot = preflight.RepositoryRoot
+	run.ProjectRelative = preflight.ProjectRelative
+	run.PreflightCheckedAt = s.deps.Now().UTC()
 	run.MaxReviewRounds = options.MaxReviewRounds
 
 	requirements, err := store.ReadArtifact(run.ID, run.RequirementsPath)

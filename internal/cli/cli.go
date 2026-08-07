@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -43,6 +44,10 @@ func (c *CLI) Run(ctx context.Context, args []string) int {
 	switch args[0] {
 	case "start":
 		return c.runStart(ctx, args[1:])
+	case "init":
+		return c.runInit(ctx, args[1:])
+	case "resume":
+		return c.runResume(ctx, args[1:])
 	case "doctor":
 		return c.runDoctor(ctx, args[1:])
 	case "plan":
@@ -92,6 +97,9 @@ func (c *CLI) runStart(ctx context.Context, args []string) int {
 	asJSON := flags.Bool("json", false, "print JSON")
 	progress := flags.String("progress", "auto", "auto, tty, plain, jsonl, or none")
 	notify := flags.String("notify", "auto", "auto, desktop, bell, or none")
+	initGit := flags.Bool("init-git", false, "initialize a safe Git baseline before starting")
+	adoptExisting := flags.Bool("adopt-existing", false, "include existing project files in the initial Git baseline")
+	yes := flags.Bool("yes", false, "confirm Git bootstrap without an interactive prompt")
 
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -109,6 +117,23 @@ func (c *CLI) runStart(ctx context.Context, args []string) int {
 	if err != nil {
 		fmt.Fprintf(c.stderr, "start: %v\n", err)
 		return 2
+	}
+	if *initGit {
+		plan, err := c.service.PlanGitBootstrap(ctx, app.InitGitOptions{
+			Project: *project, RequestFile: *requestFile, AdoptExisting: *adoptExisting,
+		})
+		if err != nil {
+			fmt.Fprintf(c.stderr, "start: plan git bootstrap: %v\n", err)
+			return 1
+		}
+		if plan.RepositoryClass != app.RepositoryExisting && !*yes && !c.confirmBootstrap(plan) {
+			fmt.Fprintln(c.stderr, "start: Git bootstrap was not authorized")
+			return 1
+		}
+		if _, err := c.service.ApplyGitBootstrap(ctx, plan); err != nil {
+			fmt.Fprintf(c.stderr, "start: apply git bootstrap: %v\n", err)
+			return 1
+		}
 	}
 
 	run, err := c.service.Start(ctx, app.StartOptions{
@@ -179,6 +204,83 @@ func (c *CLI) runStart(ctx context.Context, args []string) int {
 		)
 	}
 	return 0
+}
+
+func (c *CLI) runInit(ctx context.Context, args []string) int {
+	flags := flag.NewFlagSet("init", flag.ContinueOnError)
+	flags.SetOutput(c.stderr)
+	project := flags.String("project", ".", "project directory")
+	requestFile := flags.String("request-file", "", "request file used for managed minimal bootstrap")
+	adoptExisting := flags.Bool("adopt-existing", false, "include existing project files in the initial Git baseline")
+	yes := flags.Bool("yes", false, "confirm bootstrap without an interactive prompt")
+	asJSON := flags.Bool("json", false, "print JSON")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	plan, err := c.service.PlanGitBootstrap(ctx, app.InitGitOptions{
+		Project: *project, RequestFile: *requestFile, AdoptExisting: *adoptExisting,
+	})
+	if err != nil {
+		fmt.Fprintf(c.stderr, "init: %v\n", err)
+		return 1
+	}
+	if plan.RepositoryClass != app.RepositoryExisting && !*yes && !c.confirmBootstrap(plan) {
+		fmt.Fprintln(c.stderr, "init: Git bootstrap was not authorized")
+		return 1
+	}
+	receipt, err := c.service.ApplyGitBootstrap(ctx, plan)
+	if err != nil {
+		fmt.Fprintf(c.stderr, "init: %v\n", err)
+		return 1
+	}
+	if *asJSON {
+		return c.writeJSON(map[string]any{"plan": plan, "receipt": receipt})
+	}
+	fmt.Fprintf(c.stdout, "Repository: %s\n", receipt.RepositoryRoot)
+	fmt.Fprintf(c.stdout, "Baseline commit: %s\n", receipt.InitialCommit)
+	fmt.Fprintf(c.stdout, "Files: %d\n", len(receipt.Entries))
+	fmt.Fprintln(c.stdout, "Next: rct resume --project <path>")
+	return 0
+}
+
+func (c *CLI) runResume(ctx context.Context, args []string) int {
+	flags := flag.NewFlagSet("resume", flag.ContinueOnError)
+	flags.SetOutput(c.stderr)
+	project := flags.String("project", ".", "project directory")
+	runID := flags.String("run", "", "run id; defaults to the project current run")
+	asJSON := flags.Bool("json", false, "print JSON")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	run, err := c.service.Resume(ctx, app.ResumeOptions{Project: *project, RunID: *runID})
+	if err != nil {
+		fmt.Fprintf(c.stderr, "resume: %v\n", err)
+		return 1
+	}
+	if *asJSON {
+		return c.writeJSON(run)
+	}
+	fmt.Fprintf(c.stdout, "Run: %s\n", run.ID)
+	fmt.Fprintf(c.stdout, "State: %s\n", run.State)
+	if run.State == domain.StateAwaitingApproval {
+		fmt.Fprintln(c.stdout, "Next: rct approve --project <path>")
+	} else if run.State == domain.StateImplementationReady {
+		fmt.Fprintln(c.stdout, "Next: rct implement --project <path>")
+	}
+	return 0
+}
+
+func (c *CLI) confirmBootstrap(plan app.GitBootstrapPlan) bool {
+	fmt.Fprintf(c.stderr, "Git bootstrap will create a local baseline commit in %s.\n", plan.Project)
+	fmt.Fprintf(c.stderr, "Classification: %s; files: %d; remote operations: none.\n", plan.RepositoryClass, len(plan.Inventory))
+	fmt.Fprint(c.stderr, "Continue? [y/N] ")
+	reader := bufio.NewReader(c.stdin)
+	answer, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false
+	}
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	return answer == "y" || answer == "yes"
 }
 
 func (c *CLI) runPlan(ctx context.Context, args []string) int {
@@ -583,5 +685,5 @@ func (c *CLI) writeJSON(value any) int {
 
 func (c *CLI) printUsage() {
 	fmt.Fprintln(c.stderr, "Usage: rct <command> [options]")
-	fmt.Fprintln(c.stderr, "Commands: start, plan, approve, implement, doctor, status, watch, serve, version")
+	fmt.Fprintln(c.stderr, "Commands: start, init, resume, plan, approve, implement, doctor, status, watch, serve, version")
 }

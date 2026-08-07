@@ -24,9 +24,10 @@ func TestExecutePlanningApprovesArchitectureAndPlan(t *testing.T) {
 		Now: func() time.Time {
 			return time.Date(2026, 8, 2, 13, 0, 0, 0, time.UTC)
 		},
-		Random:       bytes.NewReader([]byte{1, 2, 3, 4, 5, 6}),
-		Agent:        gateway,
-		ProviderAuth: func(context.Context, domain.Provider) error { return nil },
+		Random:        bytes.NewReader([]byte{1, 2, 3, 4, 5, 6}),
+		Agent:         gateway,
+		ProviderAuth:  func(context.Context, domain.Provider) error { return nil },
+		ProcessRunner: &implementationRunner{},
 	})
 	run, err := service.Start(context.Background(), StartOptions{
 		Request: "Build it",

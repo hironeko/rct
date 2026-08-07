@@ -67,7 +67,7 @@ func (s *Service) Approve(
 		return run, err
 	}
 	if run.PlanPath == "" || run.PlanReview == "" || run.PlanSHA256 == "" ||
-		run.ApprovalTargetHash == "" {
+		run.ApprovalTargetHash == "" || run.BaseCommit == "" {
 		return run, errors.New("approved plan evidence is incomplete")
 	}
 	plan, err := store.ReadArtifact(run.ID, run.PlanPath)
@@ -92,18 +92,19 @@ func (s *Service) Approve(
 	}
 	now := s.deps.Now().UTC()
 	record := domain.HumanApprovalRecord{
-		SchemaVersion: "1.0",
-		ID:            "approval_" + hex.EncodeToString(random),
-		RunID:         run.ID,
-		GateKind:      "implementation_start",
-		Phase:         "implementation",
-		SubjectPath:   run.PlanPath,
-		SubjectSHA256: currentHash,
-		Approver:      strings.TrimSpace(options.Approver),
-		Note:          strings.TrimSpace(options.Note),
-		CreatedAt:     now,
-		ConsumedAt:    now,
-		StateRevision: run.Revision,
+		SchemaVersion:  "1.0",
+		ID:             "approval_" + hex.EncodeToString(random),
+		RunID:          run.ID,
+		GateKind:       "implementation_start",
+		Phase:          "implementation",
+		SubjectPath:    run.PlanPath,
+		SubjectSHA256:  currentHash,
+		BaselineCommit: run.BaseCommit,
+		Approver:       strings.TrimSpace(options.Approver),
+		Note:           strings.TrimSpace(options.Note),
+		CreatedAt:      now,
+		ConsumedAt:     now,
+		StateRevision:  run.Revision,
 	}
 	encoded, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {

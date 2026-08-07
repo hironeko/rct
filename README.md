@@ -118,7 +118,36 @@ rct start \
   --execute
 ```
 
-After the plan is independently approved, authorize its exact SHA-256 and run the milestone loop:
+Planning now includes an implementation preflight. If the project does not yet have a Git baseline, the run is
+preserved at `WAITING_FOR_HUMAN` instead of being marked failed. Create the local baseline and resume the same
+run without regenerating the approved artifacts:
+
+```bash
+rct init \
+  --project /path/to/project \
+  --request-file /path/to/project/request.md \
+  --yes
+
+rct resume --project /path/to/project
+```
+
+For a new managed-minimal project, bootstrap can also be authorized as part of `start`:
+
+```bash
+rct start \
+  --project /path/to/project \
+  --request-file /path/to/project/request.md \
+  --init-git \
+  --yes \
+  --execute
+```
+
+Directories containing files beyond the selected request and optional `.gitignore` require the explicit
+`--adopt-existing` option. Git bootstrap initializes only the local repository, adds `/.rct/` to the root
+`.gitignore`, and creates a fixed initial baseline commit. It never adds a remote or pushes.
+
+After the plan and Git baseline are independently approved, authorize the exact plan SHA-256 plus baseline
+commit and run the milestone loop:
 
 ```bash
 rct approve \
@@ -170,7 +199,10 @@ rebuilding frontend assets.
 or `none`. Automatic desktop notifications use the macOS system notifier or `notify-send` on Linux and fall
 back to a terminal bell when appropriate.
 
-Implementation starts only from a clean Git worktree. Each milestone is implemented, verified with the
+Implementation starts only from a clean Git worktree whose HEAD still matches the approved baseline. Git
+bootstrap, preflight, resume, and the complete implementation loop share a project-level writer lease, so two
+runs cannot mutate the same project concurrently. Recoverable Git conditions return to `WAITING_FOR_HUMAN`
+rather than destroying the approved design state. Each milestone is implemented, verified with the
 approved executable-and-argument arrays, independently code-reviewed, and remediated when required. After all
 milestones pass, rct reruns the complete verification set and performs a final independent review of the
 cumulative diff before marking the run completed.
@@ -195,6 +227,8 @@ participate in backend detection; managed-session execution and resume remain se
 
 ```text
 rct start
+rct init
+rct resume
 rct plan
 rct approve
 rct implement

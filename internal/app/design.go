@@ -414,6 +414,9 @@ func (s *Service) syncAttentionActivity(store *filesystem.Store, run domain.Run)
 	if run.State == domain.StateAwaitingApproval {
 		activity.Phase = "implementation_approval"
 	}
+	if run.State == domain.StateWaitingForHuman && run.Interruption != nil && run.Interruption.Phase != "" {
+		activity.Phase = run.Interruption.Phase
+	}
 	if run.State == domain.StateFailed && activity.Error == nil {
 		activity.Error = &domain.SafeProgressError{Code: "RUN_FAILED", Summary: "The run stopped before completion", Retryable: true, NextAction: "Run rct status and inspect the local job directory"}
 	}

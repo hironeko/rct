@@ -17,13 +17,51 @@ import (
 const stateDirectory = ".rct"
 
 var ErrRevisionConflict = errors.New("state revision conflict")
+var ErrProjectWriterBusy = errors.New("project writer lease is already held")
 
 type Store struct {
 	project string
 }
 
+type ProjectWriterLease struct {
+	file *os.File
+}
+
+func (l *ProjectWriterLease) Close() error {
+	if l == nil || l.file == nil {
+		return nil
+	}
+	if err := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN); err != nil {
+		_ = l.file.Close()
+		return fmt.Errorf("release project writer lease: %w", err)
+	}
+	err := l.file.Close()
+	l.file = nil
+	return err
+}
+
 func New(project string) *Store {
 	return &Store{project: project}
+}
+
+func (s *Store) AcquireProjectWriterLease() (*ProjectWriterLease, error) {
+	base := filepath.Join(s.project, stateDirectory)
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		return nil, fmt.Errorf("create rct state directory: %w", err)
+	}
+	path := filepath.Join(base, "project-writer.lock")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open project writer lease: %w", err)
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = file.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, ErrProjectWriterBusy
+		}
+		return nil, fmt.Errorf("acquire project writer lease: %w", err)
+	}
+	return &ProjectWriterLease{file: file}, nil
 }
 
 func (s *Store) Create(run domain.Run, request string) error {

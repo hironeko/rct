@@ -102,6 +102,9 @@ func ProjectProgress(run Run, activity *CurrentActivity, lastEventSeq uint64) Pr
 	phaseIDs := macroPhaseIDs(run.Mode)
 	completed := completedMacroPhases(run)
 	currentPhase := phaseForState(run.State)
+	if run.State == StateWaitingForHuman && run.Interruption != nil && run.Interruption.Phase != "" {
+		currentPhase = run.Interruption.Phase
+	}
 	if currentPhase == "" && activity != nil {
 		currentPhase = activity.Phase
 	}
@@ -141,8 +144,16 @@ func ProjectProgress(run Run, activity *CurrentActivity, lastEventSeq uint64) Pr
 		next = "Run rct approve --project <path>"
 	case StateImplementationReady:
 		next = "Run rct implement --project <path>"
-	case StateWaitingForHuman, StateBlocked:
-		next = "Inspect the waiting reason and run status before resuming"
+	case StateWaitingForHuman:
+		if run.Interruption != nil && run.Interruption.Code == "GIT_BOOTSTRAP_REQUIRED" {
+			next = "Run rct init --project <path> --request-file <request.md> --yes, then rct resume --project <path>"
+		} else if run.Interruption != nil {
+			next = "Resolve the preflight issue, then run rct resume --project <path>"
+		} else {
+			next = "Inspect the waiting reason and run status before resuming"
+		}
+	case StateBlocked:
+		next = "Inspect the waiting reason and run status"
 	case StateFailed:
 		next = "Inspect the local job directory and run rct status"
 	}
@@ -203,7 +214,7 @@ func phaseForState(state WorkflowState) string {
 		return "architecture"
 	case StatePlanDraft, StatePlanReview, StatePlanApproved:
 		return "plan"
-	case WorkflowState("IMPLEMENTATION_PREFLIGHT"):
+	case StateImplementationPreflight:
 		return "implementation_preflight"
 	case StateAwaitingApproval:
 		return "implementation_approval"

@@ -49,6 +49,7 @@ type implementationRunner struct {
 	verificationFailures int
 	verificationCalls    int
 	verificationRequests []rctruntime.ProcessRequest
+	head                 string
 }
 
 func (r *implementationRunner) Run(
@@ -64,7 +65,15 @@ func (r *implementationRunner) Run(
 			}
 			return rctruntime.ProcessResult{Stdout: []byte(" M app.go\x00")}, nil
 		case joined == "rev-parse HEAD":
-			return rctruntime.ProcessResult{Stdout: []byte("abc123\n")}, nil
+			head := r.head
+			if head == "" {
+				head = "abc123"
+			}
+			return rctruntime.ProcessResult{Stdout: []byte(head + "\n")}, nil
+		case joined == "rev-parse --show-toplevel":
+			return rctruntime.ProcessResult{Stdout: []byte(request.Directory + "\n")}, nil
+		case joined == "ls-files --stage":
+			return rctruntime.ProcessResult{}, nil
 		case strings.HasPrefix(joined, "diff "):
 			return rctruntime.ProcessResult{Stdout: []byte("diff --git a/app.go b/app.go\n+implemented\n")}, nil
 		}
@@ -309,6 +318,26 @@ func TestExecuteImplementationStopsAtVerificationLimit(t *testing.T) {
 	}
 }
 
+func TestExecuteImplementationTreatsBaselineDriftAsRecoverable(t *testing.T) {
+	t.Parallel()
+
+	runner := &implementationRunner{head: "changed-head"}
+	service, run := implementationFixture(t, &implementationGateway{}, runner)
+	waiting, err := service.ExecuteImplementation(context.Background(), run, ImplementationOptions{
+		MaxReviewRounds: 3, MaxVerificationAttempts: 3,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteImplementation() error: %v", err)
+	}
+	if waiting.State != domain.StateWaitingForHuman || waiting.Interruption == nil ||
+		waiting.Interruption.Code != InterruptionBaselineDrift {
+		t.Fatalf("waiting run = state %q interruption %#v", waiting.State, waiting.Interruption)
+	}
+	if waiting.Approval != nil || waiting.BaseCommit != "" {
+		t.Fatalf("stale approval was not invalidated: approval %#v base %q", waiting.Approval, waiting.BaseCommit)
+	}
+}
+
 func implementationFixture(
 	t *testing.T,
 	gateway providers.Gateway,
@@ -359,19 +388,23 @@ func implementationFixture(
 	run.PlanReview = "reviews/plan-v001.json"
 	run.PlanSHA256 = sha256Hex(plan)
 	run.ApprovalTargetHash = run.PlanSHA256
+	run.RepositoryRoot = project
+	run.ProjectRelative = "."
+	run.BaseCommit = "abc123"
 	run.LastVerdict = domain.VerdictApproved
 	run.Approval = &domain.HumanApprovalRecord{
-		SchemaVersion: "1.0",
-		ID:            "approval_test",
-		RunID:         run.ID,
-		GateKind:      "implementation_start",
-		Phase:         "implementation",
-		SubjectPath:   run.PlanPath,
-		SubjectSHA256: run.PlanSHA256,
-		Approver:      "tester",
-		CreatedAt:     now,
-		ConsumedAt:    now,
-		StateRevision: run.Revision,
+		SchemaVersion:  "1.0",
+		ID:             "approval_test",
+		RunID:          run.ID,
+		GateKind:       "implementation_start",
+		Phase:          "implementation",
+		SubjectPath:    run.PlanPath,
+		SubjectSHA256:  run.PlanSHA256,
+		BaselineCommit: run.BaseCommit,
+		Approver:       "tester",
+		CreatedAt:      now,
+		ConsumedAt:     now,
+		StateRevision:  run.Revision,
 	}
 	previous := run.State
 	run.State = domain.StateImplementationReady

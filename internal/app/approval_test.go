@@ -35,6 +35,9 @@ func TestApproveRecordsAndConsumesPlanAuthorization(t *testing.T) {
 	if approved.Approval == nil || approved.Approval.SubjectSHA256 != approved.PlanSHA256 {
 		t.Fatalf("approval = %#v", approved.Approval)
 	}
+	if approved.Approval.BaselineCommit != run.BaseCommit {
+		t.Fatalf("approval baseline = %q, want %q", approved.Approval.BaselineCommit, run.BaseCommit)
+	}
 	if approved.Approval.StateRevision != approvedRevision {
 		t.Fatalf("approval revision = %d, want %d", approved.Approval.StateRevision, approvedRevision)
 	}
@@ -207,6 +210,9 @@ func approvalFixture(t *testing.T) (*Service, domain.Run) {
 	))
 	run.PlanSHA256 = sha256Hex(plan)
 	run.ApprovalTargetHash = run.PlanSHA256
+	run.RepositoryRoot = project
+	run.ProjectRelative = "."
+	run.BaseCommit = "abc123"
 	run.LastVerdict = domain.VerdictApproved
 	previous := run.State
 	run.State = domain.StateAwaitingApproval
