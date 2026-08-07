@@ -1,6 +1,9 @@
 .DS_Store
 bin/
 dist/
+web/node_modules/
+!web/dist/
+!web/dist/**
 coverage.out
 .rct/
 docs/reviews/

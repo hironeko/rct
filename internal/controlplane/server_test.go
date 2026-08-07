@@ -14,6 +14,7 @@ import (
 
 	"github.com/hironeko/rct/internal/domain"
 	"github.com/hironeko/rct/internal/store/filesystem"
+	"github.com/hironeko/rct/web"
 )
 
 func TestServerSessionSecurityAndProgressAPI(t *testing.T) {
@@ -122,6 +123,39 @@ func TestServerRejectsRedeemTokenReuse(t *testing.T) {
 	_ = response.Body.Close()
 }
 
+func TestServerServesEmbeddedSPAWithoutAPIFallback(t *testing.T) {
+	server, _, client, _, run := startTestServer(t)
+	defer server.Close()
+	response, err := client.Get(server.origin + "/ui/runs/" + run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK || !bytes.Contains(body, []byte(`<div id="root"></div>`)) {
+		t.Fatalf("SPA fallback = %d %s", response.StatusCode, body)
+	}
+	if !strings.Contains(response.Header.Get("Content-Security-Policy"), "script-src 'self'") {
+		t.Fatal("SPA response does not have the required CSP")
+	}
+	response, err = client.Get(server.origin + "/ui/assets/missing.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing asset status = %d", response.StatusCode)
+	}
+	_ = response.Body.Close()
+	response, err = client.Get(server.origin + "/api/v1/missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusNotFound || !strings.HasPrefix(response.Header.Get("Content-Type"), "application/json") {
+		t.Fatalf("unknown API response = %d %q", response.StatusCode, response.Header.Get("Content-Type"))
+	}
+	_ = response.Body.Close()
+}
+
 func TestServerSSEReplaysAfterLastEventID(t *testing.T) {
 	server, _, client, _, run := startTestServer(t)
 	defer server.Close()
@@ -180,7 +214,7 @@ func startTestServer(t *testing.T) (*Server, Bootstrap, *http.Client, string, do
 	if _, err := store.AppendProgressEvent(run.ID, domain.ProgressEvent{Timestamp: now, Type: "JobStarted", Phase: "plan", JobID: "plan-r01-reviewer"}); err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewServer(Config{Listen: "127.0.0.1:0", WorkspaceRoots: []string{project}})
+	server, err := NewServer(Config{Listen: "127.0.0.1:0", WorkspaceRoots: []string{project}, UI: web.Dist()})
 	if err != nil {
 		t.Fatal(err)
 	}
