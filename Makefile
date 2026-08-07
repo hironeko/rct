@@ -8,8 +8,9 @@ PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 BUILD_DIR ?= bin
 LDFLAGS := -s -w -X $(MODULE)/internal/cli.Version=$(VERSION)
+NPM_CACHE ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/rct-npm-cache
 
-.PHONY: all build install uninstall test test-race test-installer vet check clean
+.PHONY: all build install uninstall test test-race test-installer vet web-install web-check web-build check clean
 
 all: build
 
@@ -37,7 +38,19 @@ test-installer: build
 vet:
 	$(GO) vet ./...
 
-check: test-race vet test-installer
+web-install:
+	npm_config_cache="$(NPM_CACHE)" npm --prefix web ci
+
+web-check:
+	npm_config_cache="$(NPM_CACHE)" npm --prefix web run typecheck
+	npm_config_cache="$(NPM_CACHE)" npm --prefix web test
+	npm_config_cache="$(NPM_CACHE)" npm --prefix web run build
+	git diff --exit-code -- web/dist
+
+web-build:
+	npm_config_cache="$(NPM_CACHE)" npm --prefix web run build
+
+check: test-race vet web-check test-installer
 
 clean:
 	rm -f "$(BUILD_DIR)/$(BINARY)"

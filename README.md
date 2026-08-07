@@ -150,6 +150,20 @@ rct status --project /path/to/project
 rct status --project /path/to/project --run run_... --json
 ```
 
+Open the same durable progress model in the local browser control plane:
+
+```bash
+rct serve \
+  --workspace-root /path/to/workspace \
+  --listen 127.0.0.1:0 \
+  --open
+```
+
+The server accepts loopback connections only. It establishes a one-time local browser session, applies strict
+Host, Origin, CSP, and cookie controls, and exposes read-only Run Snapshot, Activity, Event, and SSE endpoints.
+Closing the browser does not cancel a run. The React/TypeScript production UI is embedded in the Go binary;
+Node.js is needed only when developing or rebuilding frontend assets.
+
 `--progress` accepts `auto`, `tty`, `plain`, `jsonl`, or `none`. `--notify` accepts `auto`, `desktop`, `bell`,
 or `none`. Automatic desktop notifications use the macOS system notifier or `notify-send` on Linux and fall
 back to a terminal bell when appropriate.
@@ -185,6 +199,7 @@ rct implement
 rct doctor
 rct status
 rct watch
+rct serve
 rct version
 ```
 
@@ -252,6 +267,7 @@ The current product and architecture documents are maintained in Japanese:
 ```bash
 make test
 make vet
+make web-check
 make check
 ```
 

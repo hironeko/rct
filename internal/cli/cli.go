@@ -55,6 +55,8 @@ func (c *CLI) Run(ctx context.Context, args []string) int {
 		return c.runStatus(args[1:])
 	case "watch":
 		return c.runWatch(ctx, args[1:])
+	case "serve":
+		return c.runServe(ctx, args[1:])
 	case "version":
 		fmt.Fprintln(c.stdout, Version)
 		return 0
@@ -579,5 +581,5 @@ func (c *CLI) writeJSON(value any) int {
 
 func (c *CLI) printUsage() {
 	fmt.Fprintln(c.stderr, "Usage: rct <command> [options]")
-	fmt.Fprintln(c.stderr, "Commands: start, plan, approve, implement, doctor, status, watch, version")
+	fmt.Fprintln(c.stderr, "Commands: start, plan, approve, implement, doctor, status, watch, serve, version")
 }
