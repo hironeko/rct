@@ -192,7 +192,8 @@ The server accepts loopback connections only. It establishes a one-time local br
 Host, Origin, CSRF, CSP, idempotency, and cookie controls. The embedded React/TypeScript UI provides English and
 Japanese views, a Run/agent status sidebar, a semantic workflow conversation, live progress, and an explicit
 implementation approval gate backed by the same Application Service as the CLI. Failed and stopped runs remain
-separate from active agents. Closing the browser does not cancel a run. Node.js is needed only when developing or
+separate from active agents. The visual theme can be switched between Dark, Light, and Half; Half keeps the
+status sidebar dark while the main workspace remains light. Closing the browser does not cancel a run. Node.js is needed only when developing or
 rebuilding frontend assets.
 
 `--progress` accepts `auto`, `tty`, `plain`, `jsonl`, or `none`. `--notify` accepts `auto`, `desktop`, `bell`,

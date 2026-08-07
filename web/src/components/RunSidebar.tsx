@@ -3,10 +3,12 @@ import { localizedIdentifier, localizedState, useI18n } from "../i18n";
 import { useRunCatalog } from "../runCatalog";
 import type { RunSnapshot } from "../api/types";
 import { stateKind } from "./StatusPill";
+import { useTheme, type Theme } from "../theme";
 
 export function RunSidebar() {
   const { runs, error } = useRunCatalog();
   const { locale, setLocale, t } = useI18n();
+  const { theme, setTheme } = useTheme();
   const active = runs?.filter((run) => !terminalGroup(run)) ?? [];
   const completed = runs?.filter((run) => run.state === "COMPLETED") ?? [];
   const failed = runs?.filter((run) => terminalGroup(run) === "failed") ?? [];
@@ -20,6 +22,14 @@ export function RunSidebar() {
       <div className="language-switch" aria-label="Language">
         <button type="button" aria-pressed={locale === "ja"} onClick={() => setLocale("ja")}>日本語</button>
         <button type="button" aria-pressed={locale === "en"} onClick={() => setLocale("en")}>EN</button>
+      </div>
+      <div className="theme-switch" aria-label={t("theme")}>
+        {(["dark", "light", "half"] as Theme[]).map((option) => (
+          <button type="button" key={option} aria-pressed={theme === option} onClick={() => setTheme(option)}>
+            <span aria-hidden="true">{option === "dark" ? "●" : option === "light" ? "○" : "◐"}</span>
+            {t(`${option}Theme`)}
+          </button>
+        ))}
       </div>
       <nav className="agent-nav" aria-label={t("activeAgents")}>
         <RunGroup title={t("activeAgents")} runs={active} empty={t("noActiveAgents")} />

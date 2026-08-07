@@ -583,6 +583,16 @@ SSE ClientはSequenceで重複排除し、切断時に`Last-Event-ID`から再�
 Snapshotを再取得する。HeartbeatをScreen Readerへ毎回通知せず、Phase変更、Failure、Human Action要求だけを
 Live Regionへ通知する。ColorやAnimationを唯一の状態表現にせずReduced Motionへ対応する。
 
+### 9.7 Theme preference
+
+Themeは`dark`、`light`、`half`のUnion TypeとしてFrontend内だけで管理する。`half`はRootをLight Tokenへ
+切り替えたうえで、Status SidebarのScopeへDark Tokenを再定義する。Componentごとの条件分岐やInline Styleは
+使用せず、`html[data-theme]`とCSS Custom Propertiesだけで配色する。
+
+Theme SelectorはStatus Sidebar内へLanguage Selectorと並べ、Button、`aria-pressed`、Text Labelを持つ。
+選択値は`localStorage`の`rct.theme`へTheme IDだけを保存する。正式なRun State、Session、Prompt、Pathとは
+結合せず、Server APIへ送信しない。未保存時は既存表示と互換性のある`dark`を使用する。
+
 ## 10. CLI
 
 ```text

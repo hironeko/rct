@@ -5,6 +5,7 @@ export type Locale = "ja" | "en";
 const messages: Record<Locale, Record<string, string>> = {
   ja: {
     runControl: "Run コントロール", localOnly: "ローカルのみ", status: "ステータス",
+    theme: "テーマ", darkTheme: "ダーク", lightTheme: "ライト", halfTheme: "ハーフ",
     activeAgents: "稼働中・待機中", completedRuns: "完了", failedRuns: "失敗・停止",
     noActiveAgents: "稼働中のAgentはありません", noFailedRuns: "失敗したRunはありません",
     selectAgent: "左の一覧からAgentを選択してください", selectAgentBody: "Agentを切り替えると、工程の会話、現在の作業、承認待ちを確認できます。",
@@ -29,6 +30,7 @@ const messages: Record<Locale, Record<string, string>> = {
   },
   en: {
     runControl: "Run Control", localOnly: "Local only", status: "Status",
+    theme: "Theme", darkTheme: "Dark", lightTheme: "Light", halfTheme: "Half",
     activeAgents: "Active & waiting", completedRuns: "Completed", failedRuns: "Failed & stopped",
     noActiveAgents: "No active agents", noFailedRuns: "No failed runs",
     selectAgent: "Select an agent from the left", selectAgentBody: "Switch agents to inspect workflow conversation, current work, and approval gates.",

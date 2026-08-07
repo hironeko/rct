@@ -266,6 +266,7 @@ go test -race ./internal/controlplane/http ./internal/cli -count=1
 - Keyboard/focus/responsive behavior
 - typed API client and DTOs
 - plain CSS and design tokens
+- persisted `dark` / `light` / `half` display preference
 - committed, reproducible embedded production assets
 
 #### Non-scope
@@ -308,6 +309,8 @@ web/dist/
 - `/ui/*`の直接Access/再読込が成功し、`/api/v1/*`はSPA Fallbackされない
 - TypeScript Strict CheckとProduction Buildが成功する
 - React Router Framework Modeまたは未承認Runtime Dependencyが含まれない
+- `half`でStatus SidebarがDark、Main PaneがLightとなり、3 ThemeすべてでFocusとState Textを判別できる
+- Theme変更後の再読込で選択値だけが復元され、Run StateやSession情報をLocal Storageへ保存しない
 - 再Build後の`web/dist`に未Commit差分がない
 
 #### Verification

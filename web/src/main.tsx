@@ -3,6 +3,7 @@ import { RouterProvider } from "react-router/dom";
 import { bootstrapSession } from "./api/client";
 import { router } from "./router";
 import { I18nProvider, useI18n } from "./i18n";
+import { ThemeProvider } from "./theme";
 import "./styles/app.css";
 
 const rootElement = document.getElementById("root");
@@ -11,11 +12,11 @@ if (!rootElement) throw new Error("rct UI root element is missing");
 const root = createRoot(rootElement);
 
 bootstrapSession()
-  .then(() => root.render(<I18nProvider><RouterProvider router={router} /></I18nProvider>))
+  .then(() => root.render(<ThemeProvider><I18nProvider><RouterProvider router={router} /></I18nProvider></ThemeProvider>))
   .catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "The local session could not be established";
     root.render(
-      <I18nProvider><SessionError message={message} /></I18nProvider>,
+      <ThemeProvider><I18nProvider><SessionError message={message} /></I18nProvider></ThemeProvider>,
     );
   });
 

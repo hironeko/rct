@@ -1272,6 +1272,12 @@ Browser UIは日本語と英語を切り替えられること。初回表示はB
 言語設定とともに保存してはならない。Workflow State、Phase、Role、主要Semantic Event、Human Actionを
 両言語で同じ意味に表示し、未翻訳の識別子が正式状態を変更してはならない。
 
+Browser UIは表示Themeとして`dark`、`light`、`half`を選択できること。`half`はDesktopで左側のStatus
+SidebarをDark、Main PaneをLightとして表示し、狭い画面でもSidebarとMain Paneそれぞれの配色を維持する。
+初期値は既存UIと互換性のある`dark`とし、選択後はTheme IDだけを`rct.theme` Local preferenceとして
+保存してよい。Theme設定へSession Token、Prompt、Run State、絶対Pathを含めてはならない。すべてのThemeで
+Keyboard Focus、Text、State、Approval、Errorを判別でき、色だけを意味の唯一の表現にしてはならない。
+
 Desktopの主要Layoutは、左側へRunごとの現在Agent、Provider、Role、Stateを表示するStatus Sidebar、
 中央へSemantic EventとCurrent Activityを会話形式で投影するMain Paneを配置すること。SidebarからRunを
 切り替えられ、`FAILED`、`BLOCKED`、`CANCELLED`は稼働中一覧へ混在させず下段へ集約すること。
