@@ -1,7 +1,7 @@
 # rct 要件定義書
 
-- 文書版: 0.11.3-draft
-- ステータス: Draft（rct Core Loop実装済み、拡張機能は設計段階）
+- 文書版: 0.11.4-draft
+- ステータス: Draft（rct Core LoopおよびBrowser Progress UI実装済み、Browser Intakeは設計段階）
 - 対象: MVP から v1
 - 対象OS: macOS / Linux
 - 実装言語: Go
@@ -1265,6 +1265,29 @@ Frontend DependencyはLockfileで固定し、CIとRelease BuildでType Check、U
 外部URL検査を実行すること。埋込済みProduction AssetとFrontend Sourceの対応をBuild Manifestまたは
 同等のMachine-readable Metadataで検査できること。
 
+#### FR-215
+
+Browser UIは日本語と英語を切り替えられること。初回表示はBrowserの言語設定を使用し、選択後は
+言語設定だけをLocal preferenceとして保存してよい。Session Token、Prompt、Run State、絶対Pathを
+言語設定とともに保存してはならない。Workflow State、Phase、Role、主要Semantic Event、Human Actionを
+両言語で同じ意味に表示し、未翻訳の識別子が正式状態を変更してはならない。
+
+Desktopの主要Layoutは、左側へRunごとの現在Agent、Provider、Role、Stateを表示するStatus Sidebar、
+中央へSemantic EventとCurrent Activityを会話形式で投影するMain Paneを配置すること。SidebarからRunを
+切り替えられ、`FAILED`、`BLOCKED`、`CANCELLED`は稼働中一覧へ混在させず下段へ集約すること。
+会話表示はRaw Provider LogやPromptでなく、公開可能なSemantic Eventだけから構成すること。
+
+#### FR-216
+
+`AWAITING_IMPLEMENTATION_APPROVAL`のRun Detailは、対象Run ID、Expected State Revision、Plan Bindingを
+利用者が確認した後に実装開始を承認できること。Browser承認はCLIと同じApproval Application Serviceを
+呼び、HTTP HandlerがStateを直接変更してはならない。
+
+承認EndpointはPOST、Session Cookie、完全一致Origin/Host、JSON Content-Type、別CSRF Token、Body Limit、
+Idempotency Keyを必須とする。選択中Run IDを明示し、ProjectのCurrent Run Pointerへ暗黙に置換しないこと。
+Revision、State、ReviewerApproval、GatePass、Plan Hashのいずれかが変化した場合はFail Closedとし、最新
+Snapshotの再確認を要求すること。通常のApprovalで`WAITING_FOR_HUMAN`やReview/Verification上限をOverrideしてはならない。
+
 ### 9.20 Build / Install / Release
 
 #### FR-220
@@ -2383,6 +2406,19 @@ Artifact、Exit Resultは通知成功時と一致し、同じJobを再実行し�
 Prompt、Credential、Absolute Path、Raw stderrを含む失敗RunでもNotification Sinkへ渡るTitle/Bodyは安全なEvent名、
 Short Run ID、次のActionだけである。macOS Desktop、Linux Desktop利用可能時、Bell Fallback、`--notify none`を
 Contract Testし、追加Notification PackageがないLinuxでもrct Command自体は正常に動作する。
+
+### AC-089
+
+日本語BrowserでControl Planeを初回表示すると、Status Sidebar、Workflow State、Phase、Agent Role、Human Actionが
+日本語で表示され、英語へ切り替えると同じRun IDとState Revisionのまま英語表示へ変わる。左Sidebarで別Runを
+選ぶとMain PaneのSemantic EventとCurrent ActivityがそのRunへ切り替わり、失敗・停止RunはSidebar下段へ集約される。
+Browser DOMへRaw stdout/stderr、Prompt、絶対Pathは追加されない。
+
+### AC-090
+
+`AWAITING_IMPLEMENTATION_APPROVAL`のRunで確認操作後に承認Buttonを押すと、Run IDとExpected Revisionを指定した
+Approval Application Serviceが一回だけ呼ばれる。同じIdempotency Keyの再送では同じ成功Responseを返し、別Run、
+古いRevision、不正CSRF/Origin/Host、承認待ち以外のStateではApproval RecordとStateを変更しない。
 
 ## 16. 初期リスク
 

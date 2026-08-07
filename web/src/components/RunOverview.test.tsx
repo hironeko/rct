@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import type { RunSnapshot } from "../api/types";
+import { I18nProvider, type Locale } from "../i18n";
 import { RunOverview } from "./RunOverview";
 
 const fixture: RunSnapshot = {
@@ -48,18 +49,40 @@ const fixture: RunSnapshot = {
 
 describe("RunOverview", () => {
   it("separates objective progress from review budget and previous verdict", () => {
-    render(<RunOverview run={fixture} events={[]} connection="Live" />);
+    renderOverview("en");
     expect(screen.getByLabelText("2 of 8 phases complete")).toHaveAttribute("value", "2");
     expect(screen.getByText("Round 2 of 3")).toBeInTheDocument();
-    expect(screen.getByText("Previous review verdict")).toBeInTheDocument();
+    expect(screen.getByText("Previous review")).toBeInTheDocument();
     expect(screen.getByText("Changes Requested")).toBeInTheDocument();
     expect(screen.queryByText(/67%/)).not.toBeInTheDocument();
   });
 
   it("does not render private fields that are absent from the public DTO", () => {
-    const { container } = render(<RunOverview run={fixture} events={[]} connection="Live" />);
+    const { container } = renderOverview("en");
     expect(container).not.toHaveTextContent("/Users/");
     expect(container).not.toHaveTextContent("stdout");
     expect(container).not.toHaveTextContent("prompt");
   });
+
+  it("renders the same workflow in Japanese", () => {
+    renderOverview("ja");
+    expect(screen.getByText("工程の会話")).toBeInTheDocument();
+    expect(screen.getByText("レビュー回数")).toBeInTheDocument();
+    expect(screen.getByText("計画レビュー")).toBeInTheDocument();
+  });
+
+  it("requires an explicit confirmation before approving", () => {
+    const onApprove = vi.fn().mockResolvedValue(undefined);
+    const awaiting = { ...fixture, state: "AWAITING_IMPLEMENTATION_APPROVAL", activity: undefined };
+    render(<I18nProvider initialLocale="en"><RunOverview run={awaiting} events={[]} connection="Current" onApprove={onApprove} /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Review approval" }));
+    fireEvent.change(screen.getByLabelText("Approval note (optional)"), { target: { value: "Looks good" } });
+    expect(onApprove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Approve this Plan" }));
+    expect(onApprove).toHaveBeenCalledWith("Looks good");
+  });
 });
+
+function renderOverview(locale: Locale) {
+  return render(<I18nProvider initialLocale={locale}><RunOverview run={fixture} events={[]} connection="Live" /></I18nProvider>);
+}

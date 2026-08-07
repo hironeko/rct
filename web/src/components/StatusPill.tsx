@@ -1,11 +1,14 @@
+import { localizedState, useI18n } from "../i18n";
+
 export function StatusPill({ state }: { state: string }) {
   const kind = stateKind(state);
-  return <span className={`status-pill status-${kind}`}><span aria-hidden="true">{statusIcon(kind)}</span>{stateLabel(state)}</span>;
+  const { locale } = useI18n();
+  return <span className={`status-pill status-${kind}`}><span aria-hidden="true">{statusIcon(kind)}</span>{localizedState(state, locale)}</span>;
 }
 
 export function stateKind(state: string): "running" | "waiting" | "completed" | "failed" | "idle" {
   if (state === "COMPLETED") return "completed";
-  if (state === "FAILED" || state === "BLOCKED") return "failed";
+  if (state === "FAILED" || state === "BLOCKED" || state === "CANCELLED") return "failed";
   if (state.includes("AWAITING") || state === "WAITING_FOR_HUMAN") return "waiting";
   if (state === "INTAKE") return "idle";
   return "running";

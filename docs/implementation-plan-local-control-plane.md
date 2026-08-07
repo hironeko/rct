@@ -1,9 +1,9 @@
 # Local Browser Control Plane 実装計画
 
-- 文書版: 0.4.3-draft
+- 文書版: 0.4.4-draft
 - 作成日: 2026-08-02
-- 対応設計: `docs/design/local-control-plane.md` 0.4.3-draft、`docs/design/live-progress-and-run-observability.md` 0.2.1-draft
-- 状態: 計画完了（実装未着手）
+- 対応設計: `docs/design/local-control-plane.md` 0.4.4-draft、`docs/design/live-progress-and-run-observability.md` 0.2.1-draft
+- 状態: L3 Security FoundationおよびL5 Progress/Approvalの一部を実装済み。L0〜L4 Intake Flowは継続
 
 ## 1. 実装原則
 

@@ -1,6 +1,7 @@
 import type { ApiEnvelope, EventPage, RunSnapshot } from "./types";
 
 let sessionPromise: Promise<void> | undefined;
+let csrfToken = "";
 
 async function request<T>(url: string): Promise<T> {
   const response = await fetch(url, {
@@ -31,14 +32,12 @@ export function bootstrapSession(): Promise<void> {
   sessionPromise = (async () => {
     const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const token = fragment.get("bootstrap");
-    if (!token) return;
-    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
-    const response = await fetch("/api/v1/session", {
-      method: "POST",
-      credentials: "same-origin",
+    if (token) window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    const response = await fetch("/api/v1/session", token ? {
+      method: "POST", credentials: "same-origin",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ token }),
-    });
+    } : { credentials: "same-origin", headers: { Accept: "application/json" } });
     const envelope = (await response.json()) as ApiEnvelope<{ csrf_token: string }>;
     if (!response.ok || envelope.error) {
       throw new ApiError(
@@ -47,6 +46,8 @@ export function bootstrapSession(): Promise<void> {
         envelope.request_id,
       );
     }
+    csrfToken = envelope.data?.csrf_token ?? "";
+    if (!csrfToken) throw new ApiError("The local browser session is incomplete", "unauthorized", envelope.request_id);
   })();
   return sessionPromise;
 }
@@ -63,3 +64,23 @@ export const getEvents = (runId: string, afterSequence: number, limit = 100): Pr
 
 export const streamURL = (runId: string, afterSequence: number): string =>
   `/api/v1/runs/${encodeURIComponent(runId)}/stream?after_seq=${afterSequence}`;
+
+export async function approveRun(runId: string, expectedRevision: number, note: string): Promise<RunSnapshot> {
+  await bootstrapSession();
+  const response = await fetch(`/api/v1/runs/${encodeURIComponent(runId)}/approve`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-RCT-CSRF": csrfToken,
+      "Idempotency-Key": crypto.randomUUID(),
+    },
+    body: JSON.stringify({ expected_revision: expectedRevision, note }),
+  });
+  const envelope = (await response.json()) as ApiEnvelope<RunSnapshot>;
+  if (!response.ok || envelope.error || !envelope.data) {
+    throw new ApiError(envelope.error?.message ?? "The approval could not be recorded", envelope.error?.code ?? "approval_failed", envelope.request_id);
+  }
+  return envelope.data;
+}

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
-import { ApiError, getEvents, getRun, streamURL } from "../api/client";
+import { useParams } from "react-router";
+import { ApiError, approveRun, getEvents, getRun, streamURL } from "../api/client";
 import type { ProgressEvent, RunSnapshot } from "../api/types";
 import { RunOverview } from "../components/RunOverview";
+import { useI18n } from "../i18n";
+import { useRunCatalog } from "../runCatalog";
 
 type ConnectionState = "Connecting" | "Live" | "Polling" | "Current";
 
@@ -13,12 +15,20 @@ export function RunDetail() {
   const [connection, setConnection] = useState<ConnectionState>("Connecting");
   const [error, setError] = useState<string>();
   const [announcement, setAnnouncement] = useState("");
+  const [approvalError, setApprovalError] = useState<string>();
+  const [approving, setApproving] = useState(false);
+  const [streamEpoch, setStreamEpoch] = useState(0);
   const sequence = useRef(0);
+  const { refresh: refreshCatalog } = useRunCatalog();
+  const { t } = useI18n();
 
   useEffect(() => {
     let active = true;
     let source: EventSource | undefined;
     let polling: number | undefined;
+    sequence.current = 0;
+    setEvents([]);
+    setError(undefined);
 
     const refresh = async (announce = false) => {
       const nextRun = await getRun(runId);
@@ -75,15 +85,33 @@ export function RunDetail() {
       source?.close();
       if (polling !== undefined) window.clearInterval(polling);
     };
-  }, [runId]);
+  }, [runId, streamEpoch]);
+
+  const approve = async (note: string) => {
+    if (!run || approving) return;
+    setApproving(true);
+    setApprovalError(undefined);
+    try {
+      const updated = await approveRun(run.run_id, run.state_revision, note);
+      setRun(updated);
+      setAnnouncement(t("approved"));
+      await refreshCatalog();
+      setStreamEpoch((value) => value + 1);
+    } catch (reason: unknown) {
+      setApprovalError(reason instanceof ApiError ? `${reason.message} · ${reason.requestId}` : t("approvalFailed"));
+      const latest = await getRun(run.run_id).catch(() => undefined);
+      if (latest) setRun(latest);
+    } finally {
+      setApproving(false);
+    }
+  };
 
   return (
-    <main className="page run-page">
-      <Link to="/" className="back-link">← All runs</Link>
+    <main className="workspace-page run-page">
       <div className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</div>
       {error && <div className="error-page"><p className="eyebrow">RUN UNAVAILABLE</p><h1>Unable to display this run</h1><p>{error}</p></div>}
       {!run && !error && <div className="run-loading"><span aria-hidden="true">rct</span><p>Rebuilding progress from durable state…</p></div>}
-      {run && <RunOverview run={run} events={events} connection={connection} />}
+      {run && <RunOverview run={run} events={events} connection={connection} onApprove={approve} approving={approving} approvalError={approvalError} />}
     </main>
   );
 }

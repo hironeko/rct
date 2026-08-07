@@ -56,6 +56,7 @@ func (c *CLI) runServe(ctx context.Context, args []string) int {
 	}
 	server, err := controlplane.NewServer(controlplane.Config{
 		Listen: *listen, WorkspaceRoots: workspaceRoots, UI: web.Dist(),
+		Approval: c.service, ApproverID: os.Getenv("USER"),
 	})
 	if err != nil {
 		fmt.Fprintf(c.stderr, "serve: %v\n", err)

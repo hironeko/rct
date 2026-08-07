@@ -16,6 +16,7 @@ import (
 
 type ApproveOptions struct {
 	Project          string
+	RunID            string
 	Approver         string
 	Note             string
 	ExpectedRevision uint64
@@ -30,7 +31,12 @@ func (s *Service) Approve(
 		return domain.Run{}, fmt.Errorf("resolve project path: %w", err)
 	}
 	store := filesystem.New(project)
-	run, err := store.LoadCurrent()
+	var run domain.Run
+	if strings.TrimSpace(options.RunID) == "" {
+		run, err = store.LoadCurrent()
+	} else {
+		run, err = store.Load(strings.TrimSpace(options.RunID))
+	}
 	if err != nil {
 		return domain.Run{}, err
 	}

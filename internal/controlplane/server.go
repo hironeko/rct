@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -29,6 +30,12 @@ type Config struct {
 	Listen         string
 	WorkspaceRoots []string
 	UI             fs.FS
+	Approval       ApprovalService
+	ApproverID     string
+}
+
+type ApprovalService interface {
+	Approve(context.Context, app.ApproveOptions) (domain.Run, error)
 }
 
 type Bootstrap struct {
@@ -45,6 +52,8 @@ type Server struct {
 	csrfToken   string
 	redeemMu    sync.Mutex
 	redeemed    bool
+	approvalMu  sync.Mutex
+	approvals   map[string]app.PublicRunSnapshot
 	listener    net.Listener
 	httpServer  *http.Server
 	origin      string
@@ -85,7 +94,10 @@ func NewServer(config Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{config: config, catalog: catalog, redeemToken: redeem, sessionID: session, csrfToken: csrf, done: make(chan error, 1)}, nil
+	if strings.TrimSpace(config.ApproverID) == "" {
+		config.ApproverID = "local-browser-user"
+	}
+	return &Server{config: config, catalog: catalog, redeemToken: redeem, sessionID: session, csrfToken: csrf, approvals: map[string]app.PublicRunSnapshot{}, done: make(chan error, 1)}, nil
 }
 
 func (s *Server) Start() (Bootstrap, error) {
@@ -143,10 +155,12 @@ func (s *Server) Close() error {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/session", s.handleSession)
+	mux.HandleFunc("GET /api/v1/session", s.requireSession(s.handleSessionInfo))
 	mux.HandleFunc("GET /api/v1/runs", s.requireSession(s.handleRuns))
 	mux.HandleFunc("HEAD /api/v1/runs", s.requireSession(s.handleRuns))
 	mux.HandleFunc("GET /api/v1/runs/", s.requireSession(s.handleRunRoute))
 	mux.HandleFunc("HEAD /api/v1/runs/", s.requireSession(s.handleRunRoute))
+	mux.HandleFunc("POST /api/v1/runs/", s.requireSession(s.requireMutation(s.handleRunMutation)))
 	mux.HandleFunc("GET /ui/", s.handleUI)
 	mux.HandleFunc("HEAD /ui/", s.handleUI)
 	mux.HandleFunc("GET /api/", func(writer http.ResponseWriter, _ *http.Request) {
@@ -190,12 +204,34 @@ func (s *Server) requireSession(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func (s *Server) requireMutation(next http.HandlerFunc) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Origin") != s.origin {
+			s.writeError(writer, http.StatusForbidden, "forbidden_origin", "The request origin is not allowed")
+			return
+		}
+		if !isJSONContentType(request.Header.Get("Content-Type")) {
+			s.writeError(writer, http.StatusUnsupportedMediaType, "invalid_input", "JSON content is required")
+			return
+		}
+		if !constantEqual(request.Header.Get("X-RCT-CSRF"), s.csrfToken) {
+			s.writeError(writer, http.StatusForbidden, "invalid_csrf", "The request verification token is invalid")
+			return
+		}
+		if !validIdempotencyKey(request.Header.Get("Idempotency-Key")) {
+			s.writeError(writer, http.StatusBadRequest, "invalid_input", "A valid idempotency key is required")
+			return
+		}
+		next(writer, request)
+	}
+}
+
 func (s *Server) handleSession(writer http.ResponseWriter, request *http.Request) {
 	if request.Header.Get("Origin") != s.origin {
 		s.writeError(writer, http.StatusForbidden, "forbidden_origin", "The request origin is not allowed")
 		return
 	}
-	if contentType := request.Header.Get("Content-Type"); !strings.HasPrefix(contentType, "application/json") {
+	if !isJSONContentType(request.Header.Get("Content-Type")) {
 		s.writeError(writer, http.StatusUnsupportedMediaType, "invalid_input", "JSON content is required")
 		return
 	}
@@ -222,6 +258,10 @@ func (s *Server) handleSession(writer http.ResponseWriter, request *http.Request
 		Name: sessionCookieName, Value: s.sessionID, Path: "/", HttpOnly: true,
 		SameSite: http.SameSiteStrictMode, MaxAge: 12 * 60 * 60,
 	})
+	s.writeJSON(writer, http.StatusOK, map[string]any{"csrf_token": s.csrfToken})
+}
+
+func (s *Server) handleSessionInfo(writer http.ResponseWriter, _ *http.Request) {
 	s.writeJSON(writer, http.StatusOK, map[string]any{"csrf_token": s.csrfToken})
 }
 
@@ -277,6 +317,61 @@ func (s *Server) handleRunRoute(writer http.ResponseWriter, request *http.Reques
 	default:
 		s.writeError(writer, http.StatusNotFound, "not_found", "The run endpoint was not found")
 	}
+}
+
+func (s *Server) handleRunMutation(writer http.ResponseWriter, request *http.Request) {
+	relative := strings.TrimPrefix(request.URL.Path, "/api/v1/runs/")
+	parts := strings.Split(strings.Trim(relative, "/"), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] != "approve" {
+		s.writeError(writer, http.StatusNotFound, "not_found", "The run action was not found")
+		return
+	}
+	if s.config.Approval == nil {
+		s.writeError(writer, http.StatusServiceUnavailable, "action_unavailable", "Browser approval is unavailable in this build")
+		return
+	}
+	located, err := s.catalog.Resolve(parts[0])
+	if err != nil {
+		s.writeError(writer, http.StatusNotFound, "not_found", "The run was not found")
+		return
+	}
+	var input struct {
+		ExpectedRevision uint64 `json:"expected_revision"`
+		Note             string `json:"note"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 8*1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil || input.ExpectedRevision == 0 || len(input.Note) > 1000 {
+		s.writeError(writer, http.StatusBadRequest, "invalid_input", "The approval request is invalid")
+		return
+	}
+	replayKey := parts[0] + ":" + request.Header.Get("Idempotency-Key")
+	s.approvalMu.Lock()
+	defer s.approvalMu.Unlock()
+	replay, ok := s.approvals[replayKey]
+	if ok {
+		s.writeJSON(writer, http.StatusOK, replay)
+		return
+	}
+	if located.Run.Revision != input.ExpectedRevision {
+		s.writeError(writer, http.StatusConflict, "stale_run", "The run changed; review the latest state before approving")
+		return
+	}
+	_, err = s.config.Approval.Approve(request.Context(), app.ApproveOptions{
+		Project: located.Project, RunID: located.Run.ID, Approver: s.config.ApproverID,
+		Note: strings.TrimSpace(input.Note), ExpectedRevision: input.ExpectedRevision,
+	})
+	if err != nil {
+		s.writeError(writer, http.StatusConflict, "approval_rejected", "The run no longer satisfies the implementation approval gate")
+		return
+	}
+	snapshot, err := s.query.Snapshot(located.Project, located.Run.ID)
+	if err != nil {
+		s.writeError(writer, http.StatusInternalServerError, "internal_error", "The updated run snapshot could not be read")
+		return
+	}
+	s.approvals[replayKey] = snapshot
+	s.writeJSON(writer, http.StatusOK, snapshot)
 }
 
 func (s *Server) handleEvents(writer http.ResponseWriter, request *http.Request, located LocatedRun) {
@@ -520,6 +615,24 @@ func constantEqual(left, right string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(left), []byte(right)) == 1
+}
+
+func validIdempotencyKey(value string) bool {
+	if len(value) < 16 || len(value) > 128 {
+		return false
+	}
+	for _, char := range value {
+		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '-' || char == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func isJSONContentType(value string) bool {
+	mediaType, _, err := mime.ParseMediaType(value)
+	return err == nil && mediaType == "application/json"
 }
 
 func parseUintQuery(values url.Values, name string, fallback uint64) (uint64, error) {

@@ -51,6 +51,28 @@ func TestApproveRecordsAndConsumesPlanAuthorization(t *testing.T) {
 	}
 }
 
+func TestApproveTargetsExplicitRunInsteadOfCurrentPointer(t *testing.T) {
+	t.Parallel()
+
+	service, run := approvalFixture(t)
+	if _, err := service.Start(context.Background(), StartOptions{
+		Request: "A newer request", Project: run.Project, Mode: "supervised",
+		Backend: "direct", SkipToolCheck: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	approved, err := service.Approve(context.Background(), ApproveOptions{
+		Project: run.Project, RunID: run.ID, Approver: "browser-user",
+		ExpectedRevision: run.Revision,
+	})
+	if err != nil {
+		t.Fatalf("Approve() explicit run error: %v", err)
+	}
+	if approved.ID != run.ID || approved.State != domain.StateImplementationReady {
+		t.Fatalf("approved run = %q state %q", approved.ID, approved.State)
+	}
+}
+
 func TestApproveRejectsChangedPlanHash(t *testing.T) {
 	t.Parallel()
 
@@ -160,6 +182,7 @@ func approvalFixture(t *testing.T) (*Service, domain.Run) {
 		Random: bytes.NewReader([]byte{
 			1, 2, 3, 4, 5, 6,
 			7, 8, 9, 10, 11, 12,
+			13, 14, 15, 16, 17, 18,
 		}),
 	})
 	run, err := service.Start(context.Background(), StartOptions{

@@ -1,25 +1,27 @@
 import { Link, Outlet, useRouteError } from "react-router";
+import { RunSidebar } from "../components/RunSidebar";
+import { useI18n } from "../i18n";
+import { RunCatalogProvider } from "../runCatalog";
 
 export function AppShell({ error = false }: { error?: boolean }) {
+  return <RunCatalogProvider><ShellContent error={error} /></RunCatalogProvider>;
+}
+
+function ShellContent({ error }: { error: boolean }) {
   const routeError = useRouteError();
+  const { t } = useI18n();
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <Link to="/" className="brand" aria-label="rct home">
-          <span className="brand-mark" aria-hidden="true">rct</span>
-          <span className="brand-copy">Run Control</span>
-        </Link>
-        <span className="local-badge"><span aria-hidden="true">●</span> Local only</span>
-      </header>
-      {error ? (
-        <main className="page error-page">
-          <p className="eyebrow">ROUTE ERROR</p>
-          <h1>This view could not be displayed</h1>
+    <div className="workspace-shell">
+      <RunSidebar />
+      <div className="workspace-content">
+        {error ? (
+          <main className="workspace-page error-page">
+          <p className="eyebrow">ROUTE ERROR</p><h1>{t("routeError")}</h1>
           <p>{routeError instanceof Error ? routeError.message : "Return to the run list and try again."}</p>
-          <Link to="/" className="button-link">View runs</Link>
+          <Link to="/" className="button-link">{t("backToRuns")}</Link>
         </main>
-      ) : <Outlet />}
-      <footer className="footer">Workflow authority remains in rct Core · Browser progress is read-only</footer>
+        ) : <Outlet />}
+      </div>
     </div>
   );
 }

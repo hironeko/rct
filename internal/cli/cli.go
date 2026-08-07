@@ -230,6 +230,7 @@ func (c *CLI) runApprove(ctx context.Context, args []string) int {
 	flags := flag.NewFlagSet("approve", flag.ContinueOnError)
 	flags.SetOutput(c.stderr)
 	project := flags.String("project", ".", "project directory")
+	runID := flags.String("run", "", "run id; defaults to the project current run")
 	approverDefault := strings.TrimSpace(os.Getenv("USER"))
 	if approverDefault == "" {
 		approverDefault = "local-user"
@@ -243,6 +244,7 @@ func (c *CLI) runApprove(ctx context.Context, args []string) int {
 	}
 	run, err := c.service.Approve(ctx, app.ApproveOptions{
 		Project:          *project,
+		RunID:            *runID,
 		Approver:         *approver,
 		Note:             *note,
 		ExpectedRevision: *expectedRevision,

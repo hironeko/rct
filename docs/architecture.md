@@ -1,8 +1,8 @@
 # rct アーキテクチャ設計書
 
-- 文書版: 0.10.3-draft
+- 文書版: 0.10.4-draft
 - ステータス: Draft
-- 対応要件: `requirements.md` 0.11.3-draft
+- 対応要件: `requirements.md` 0.11.4-draft
 - Draft拡張注記: Document Artifact移行方針、Approval Gate責務分離、Live Progress、rct名称移行を含む。
 - 実装言語: Go
 - 対象OS: macOS / Linux
@@ -1641,6 +1641,12 @@ Spike結果によりProvider AdapterとRuntime Backendの詳細だけを調整�
   採用しない。Generated Assetは`go install`互換性のためRepositoryへ含め、CIで再現Buildを検査する
 - 理由: CLIの安全境界とArtifact Protocolを維持したまま、非CLI利用者が要望投入とRun確認を
   行える操作面を追加するため
+- Interaction Model: Desktopでは左SidebarをRun/Agent selector、Main PaneをSemantic Eventから再構成した
+  会話型Workflow表示とする。失敗・停止RunはSidebar下段へ分離し、日本語/英語は表示Projectionだけを
+  切り替える。Raw Provider ConversationをBrowserへ公開しない
+- Human Gate: BrowserのApproveは`POST /api/v1/runs/{run-id}/approve`からCLIと同じApproval Application
+  Serviceへ到達する。Run ID、Expected Revision、CSRF、Idempotency Keyを固定し、Handlerによる直接State変更、
+  Current Run Pointerへの暗黙置換、一般的なWaiting ReasonのOverrideを禁止する
 - 影響: HTTP Adapter、Workspace Browser、Intake Store、Run Manager、Security Policyの
   Contract Testが必要になる。詳細は`docs/design/local-control-plane.md`へ記録する
 

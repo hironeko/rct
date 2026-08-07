@@ -1,10 +1,10 @@
 # Local Browser Control Plane 詳細設計
 
-- 文書版: 0.4.3-draft
+- 文書版: 0.4.4-draft
 - 作成日: 2026-08-02
-- 対応要件: `docs/requirements.md` 0.11.3-draft FR-190〜FR-214、FR-230〜FR-274
+- 対応要件: `docs/requirements.md` 0.11.4-draft FR-190〜FR-216、FR-230〜FR-274
 - 対応ADR: `docs/architecture.md` ADR-010、ADR-011、ADR-012
-- 状態: 設計完了（実装未着手）
+- 状態: Progress Query、SSE、埋込UI、Browser Approval実装済み。Intake Flowは未実装
 
 ## 1. 目的
 
@@ -104,6 +104,30 @@ State変更前に、次を一画面で確認できること。
 - Git Bootstrap選択、初回Commit対象、Remote/Pushを行わないこと
 
 絶対Pathは必要な確認画面だけに表示し、API Errorや通常Logへ無条件に含めない。
+
+### 3.5 Run workspace
+
+Desktopでは画面を次へ分ける。
+
+```text
+┌──────────────────────┬────────────────────────────────────────────┐
+│ Status sidebar       │ Workflow conversation                      │
+│ Active / Waiting     │ Semantic events + current activity         │
+│ - Codex Designer     │                                            │
+│ - Claude Reviewer    │ Human gate: [Review] [Approve this Plan]   │
+│                      │                                            │
+│ Completed            │ Inspector: phase timeline / artifacts      │
+│ Failed & stopped     │                                            │
+└──────────────────────┴────────────────────────────────────────────┘
+```
+
+Sidebarの一項目はRunを正本とし、現在Activityがある場合だけProvider/Roleを現在Agentとして表示する。
+選択変更はRoute変更であり、Agent SessionやWorkflow Stateを変更しない。`FAILED`、`BLOCKED`、`CANCELLED`は
+下段へ集約し、稼働中と誤認させない。狭いViewportではSidebarを上部の横方向Run selectorへ変形する。
+
+Main Paneの会話はSemantic Event、Current Activity、Waiting Reasonを人間が追いやすい順序で投影する。
+Raw Log、Prompt、Agentの自然言語会話を取得または表示しない。日本語/英語切替はClient-sideの表示辞書だけを
+変更し、Run DTOと正式状態は同一のままとする。
 
 ## 4. Component構成
 
@@ -367,10 +391,16 @@ Bounded Live Backlog外はDurable Event LogからReplayし、Slow ConsumerはRun
 ```text
 POST /api/v1/intakes
 POST /api/v1/intakes/{intake-id}/start
+POST /api/v1/runs/{run-id}/approve
 ```
 
 初回VersionではDraft作成と開始を分離する。UIの`Save and start`は二つのAPIを順に実行するが、
 Start側はIdempotency Keyにより再送可能にする。
+
+Approveは`expected_revision`と任意Noteだけを受け取り、Serverが選択RunのProject capabilityとLocal Approver IDを
+解決する。Application ServiceへRun IDを明示してCLIのApproval契約を再利用し、成功後にPublic Snapshotを返す。
+同じIdempotency KeyのProcess内再送は最初のSnapshotを返す。永続状態はApproval RecordとCASが正本であり、
+Server再起動後は最新Snapshotから承認済みStateを再構成する。
 
 ### 7.3 Response envelope
 

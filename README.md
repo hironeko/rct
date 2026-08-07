@@ -159,10 +159,12 @@ rct serve \
   --open
 ```
 
-The server accepts loopback connections only. It establishes a one-time local browser session, applies strict
-Host, Origin, CSP, and cookie controls, and exposes read-only Run Snapshot, Activity, Event, and SSE endpoints.
-Closing the browser does not cancel a run. The React/TypeScript production UI is embedded in the Go binary;
-Node.js is needed only when developing or rebuilding frontend assets.
+The server accepts loopback connections only. It establishes a one-time local browser session and applies strict
+Host, Origin, CSRF, CSP, idempotency, and cookie controls. The embedded React/TypeScript UI provides English and
+Japanese views, a Run/agent status sidebar, a semantic workflow conversation, live progress, and an explicit
+implementation approval gate backed by the same Application Service as the CLI. Failed and stopped runs remain
+separate from active agents. Closing the browser does not cancel a run. Node.js is needed only when developing or
+rebuilding frontend assets.
 
 `--progress` accepts `auto`, `tty`, `plain`, `jsonl`, or `none`. `--notify` accepts `auto`, `desktop`, `bell`,
 or `none`. Automatic desktop notifications use the macOS system notifier or `notify-send` on Linux and fall

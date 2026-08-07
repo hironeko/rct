@@ -8,10 +8,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hironeko/rct/internal/app"
 	"github.com/hironeko/rct/internal/domain"
 	"github.com/hironeko/rct/internal/store/filesystem"
 	"github.com/hironeko/rct/web"
@@ -48,7 +50,16 @@ func TestServerSessionSecurityAndProgressAPI(t *testing.T) {
 	}
 	_ = response.Body.Close()
 
-	redeemSession(t, client, server)
+	csrf := redeemSession(t, client, server)
+	response, err = client.Get(server.origin + "/api/v1/session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionBody, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK || !bytes.Contains(sessionBody, []byte(csrf)) {
+		t.Fatalf("session refresh response = %d %s", response.StatusCode, sessionBody)
+	}
 	response, err = client.Get(server.origin + "/api/v1/runs/" + run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -121,6 +132,94 @@ func TestServerRejectsRedeemTokenReuse(t *testing.T) {
 		t.Fatalf("reused token status = %d", response.StatusCode)
 	}
 	_ = response.Body.Close()
+}
+
+func TestServerApprovalRequiresCSRFAndIsIdempotent(t *testing.T) {
+	server, _, client, project, run := startTestServer(t)
+	defer server.Close()
+	store := filesystem.New(project)
+	persisted, err := store.Load(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := persisted.State
+	persisted.State = domain.StateAwaitingApproval
+	persisted.Revision++
+	persisted.UpdatedAt = persisted.UpdatedAt.Add(time.Second)
+	if err := store.Update(persisted, previous, "ImplementationApprovalRequested"); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	server.config.Approval = approvalServiceFunc(func(_ context.Context, options app.ApproveOptions) (domain.Run, error) {
+		calls++
+		candidate, loadErr := store.Load(options.RunID)
+		if loadErr != nil {
+			return domain.Run{}, loadErr
+		}
+		oldState := candidate.State
+		candidate.State = domain.StateImplementationReady
+		candidate.Revision++
+		candidate.UpdatedAt = candidate.UpdatedAt.Add(time.Second)
+		if updateErr := store.UpdateExpected(candidate, oldState, "HumanImplementationApprovalConsumed", options.ExpectedRevision); updateErr != nil {
+			return domain.Run{}, updateErr
+		}
+		return candidate, nil
+	})
+	csrf := redeemSession(t, client, server)
+	body := `{"expected_revision":` + strconv.FormatUint(persisted.Revision, 10) + `,"note":"Proceed"}`
+
+	request, _ := http.NewRequest(http.MethodPost, server.origin+"/api/v1/runs/"+run.ID+"/approve", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "http://evil.invalid")
+	request.Header.Set("Idempotency-Key", "approval-test-key-0001")
+	request.Header.Set("X-RCT-CSRF", csrf)
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusForbidden || calls != 0 {
+		t.Fatalf("invalid origin response = %d, calls = %d", response.StatusCode, calls)
+	}
+	_ = response.Body.Close()
+
+	request, _ = http.NewRequest(http.MethodPost, server.origin+"/api/v1/runs/"+run.ID+"/approve", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", server.origin)
+	request.Header.Set("Idempotency-Key", "approval-test-key-0001")
+	request.Header.Set("X-RCT-CSRF", "wrong")
+	response, err = client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusForbidden || calls != 0 {
+		t.Fatalf("invalid CSRF response = %d, calls = %d", response.StatusCode, calls)
+	}
+	_ = response.Body.Close()
+
+	approve := func() *http.Response {
+		t.Helper()
+		retry, _ := http.NewRequest(http.MethodPost, server.origin+"/api/v1/runs/"+run.ID+"/approve", strings.NewReader(body))
+		retry.Header.Set("Content-Type", "application/json")
+		retry.Header.Set("Origin", server.origin)
+		retry.Header.Set("Idempotency-Key", "approval-test-key-0001")
+		retry.Header.Set("X-RCT-CSRF", csrf)
+		result, requestErr := client.Do(retry)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		return result
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		response = approve()
+		if response.StatusCode != http.StatusOK {
+			responseBody, _ := io.ReadAll(response.Body)
+			t.Fatalf("approval response = %d %s", response.StatusCode, responseBody)
+		}
+		_ = response.Body.Close()
+	}
+	if calls != 1 {
+		t.Fatalf("approval service calls = %d, want 1", calls)
+	}
 }
 
 func TestServerServesEmbeddedSPAWithoutAPIFallback(t *testing.T) {
@@ -227,7 +326,13 @@ func startTestServer(t *testing.T) (*Server, Bootstrap, *http.Client, string, do
 	return server, bootstrap, client, project, run
 }
 
-func redeemSession(t *testing.T, client *http.Client, server *Server) {
+type approvalServiceFunc func(context.Context, app.ApproveOptions) (domain.Run, error)
+
+func (function approvalServiceFunc) Approve(ctx context.Context, options app.ApproveOptions) (domain.Run, error) {
+	return function(ctx, options)
+}
+
+func redeemSession(t *testing.T, client *http.Client, server *Server) string {
 	t.Helper()
 	request, _ := http.NewRequest(http.MethodPost, server.origin+"/api/v1/session", strings.NewReader(`{"token":"`+server.redeemToken+`"}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -240,5 +345,14 @@ func redeemSession(t *testing.T, client *http.Client, server *Server) {
 		body, _ := io.ReadAll(response.Body)
 		t.Fatalf("session status = %d: %s", response.StatusCode, body)
 	}
+	var payload struct {
+		Data struct {
+			CSRFToken string `json:"csrf_token"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
 	_ = response.Body.Close()
+	return payload.Data.CSRFToken
 }
