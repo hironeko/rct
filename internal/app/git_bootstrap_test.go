@@ -120,6 +120,34 @@ func TestPreflightDirtyWorktreeIsRecoverable(t *testing.T) {
 	}
 }
 
+func TestResumeMigratesLegacyApprovalWaitingRunIntoPreflight(t *testing.T) {
+	project := t.TempDir()
+	service := NewService(Dependencies{LookPath: exec.LookPath})
+	run, err := service.Start(context.Background(), StartOptions{
+		Request: "Build it", Project: project, Mode: "supervised", Backend: "direct", SkipToolCheck: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run = persistApprovedPlanFixture(t, run)
+	store := filesystem.New(project)
+	previous := run.State
+	run.State = domain.StateAwaitingApproval
+	run.Revision++
+	if err := store.Update(run, previous, "LegacyImplementationApprovalRequested"); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := service.Resume(context.Background(), ResumeOptions{Project: project, RunID: run.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.State != domain.StateWaitingForHuman || migrated.Interruption == nil ||
+		migrated.Interruption.Code != InterruptionGitBootstrapRequired {
+		t.Fatalf("migrated run = state %q interruption %#v", migrated.State, migrated.Interruption)
+	}
+}
+
 func persistApprovedPlanFixture(t *testing.T, run domain.Run) domain.Run {
 	t.Helper()
 	store := filesystem.New(run.Project)

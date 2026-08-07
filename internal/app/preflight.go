@@ -116,6 +116,20 @@ func (s *Service) Resume(ctx context.Context, options ResumeOptions) (domain.Run
 	if err != nil {
 		return domain.Run{}, err
 	}
+	if (run.State == domain.StateAwaitingApproval || run.State == domain.StateImplementationReady) &&
+		strings.TrimSpace(run.BaseCommit) == "" {
+		if run.PlanPath == "" || run.PlanSHA256 == "" || run.ApprovalTargetHash != run.PlanSHA256 {
+			return run, errors.New("legacy run cannot enter preflight because approved plan evidence is incomplete")
+		}
+		if run.State == domain.StateImplementationReady {
+			run.Approval = nil
+			run.ApprovalPath = ""
+		}
+		if err := s.transition(store, &run, domain.StateImplementationPreflight, "LegacyPreflightMigrationStarted"); err != nil {
+			return run, err
+		}
+		return s.ExecuteImplementationPreflight(ctx, run)
+	}
 	if run.State != domain.StateWaitingForHuman || run.Interruption == nil {
 		return run, errors.New("resume requires a preflight WAITING_FOR_HUMAN interruption")
 	}

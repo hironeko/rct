@@ -16,6 +16,7 @@
 - `/.rct/`除外、固定PathのStage、Hook/署名無効化、初回Baseline Commit、Receipt保存
 - Git未初期化、Unborn HEAD、Dirty Worktree、Baseline Drift、Writer競合の回復可能な停止
 - 同一Runを再利用する`rct resume`
+- Baseline情報を持たない旧`AWAITING_IMPLEMENTATION_APPROVAL` / `IMPLEMENTATION_READY` RunのPreflight移行
 - Plan HashとBaseline CommitへBindingしたHuman Approval
 - Implementation Command全体を覆うProject Writer Lease
 - Preflight、待機理由、具体的な次操作のCLI/Browser共通Progress反映
